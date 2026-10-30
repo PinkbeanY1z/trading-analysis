@@ -5,6 +5,7 @@ from time import monotonic
 from zoneinfo import ZoneInfo
 from .models import MarketQuery
 from .services.indicator_service import calculate
+from .services.structure_service import structure
 
 class MarketService:
     def __init__(self, provider, ttl=60):
@@ -51,5 +52,7 @@ class MarketService:
         rules=dict(trend=latest['trendDirection'],ma_structure=latest['maAlignment'],price_distance=distances,
                    volume_confirm=None if rv is None else rv>1.5,volatility=volatility,
                    key_levels={'pdh':indicators['pdh'],'pdl':indicators['pdl']},risk_level=risk,action_hint='wait' if risk=='high' else 'watch')
+        rules.update(structure(rows,indicators))
         return dict(symbol=q.symbol,assetClass=q.asset,interval=q.interval,source=self.provider.name,
                     last_updated=rows[-1]['t'],fetched_at=fetched,warnings=warnings,candles=rows,indicators=indicators,rules=rules)
+
