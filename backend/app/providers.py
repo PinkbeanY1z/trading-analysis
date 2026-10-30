@@ -16,6 +16,20 @@ class TwelveDataProvider:
     name = 'twelve_data'
     def __init__(self, client, key):
         self.client, self.key = client, key
+
+    @staticmethod
+    def reject(code):
+        """Translate documented upstream statuses without returning its message/URL/key."""
+        failures = {
+            400: ('upstream_invalid_parameters', '行情服务不支持该请求，请检查品种与周期', 502),
+            401: ('upstream_authentication', '行情服务密钥无效或已失效', 503),
+            403: ('upstream_permission', '行情服务套餐或权限不支持该品种或周期', 502),
+            404: ('empty_data', '没有可用行情', 404),
+            429: ('rate_limit', '行情服务额度受限', 429),
+        }
+        if code in failures:
+            raise MarketError(*failures[code])
+
     async def fetch(self, query):
         if not self.key:
             raise MarketError('missing_key','TWELVEDATA_API_KEY 未配置',503)
@@ -24,8 +38,7 @@ class TwelveDataProvider:
                 response = await self.client.get('https://api.twelvedata.com/time_series', params={
                     'symbol':query.symbol,'interval':query.interval,'outputsize':350,
                     'timezone':'UTC','prepost':'false','apikey':self.key})
-                if response.status_code == 429:
-                    raise MarketError('rate_limit','行情服务额度受限',429)
+                self.reject(response.status_code)
                 if response.status_code >= 500 and attempt == 0:
                     await asyncio.sleep(0.2)
                     continue
@@ -33,9 +46,8 @@ class TwelveDataProvider:
                     raise MarketError('upstream_http','行情服务请求失败')
                 data = response.json()
                 if data.get('status') == 'error':
-                    code = data.get('code')
-                    raise MarketError('rate_limit' if code == 429 else 'upstream_error',
-                                      '行情服务拒绝请求，请检查品种、权限或额度',429 if code == 429 else 502)
+                    self.reject(int(data.get('code', 0)))
+                    raise MarketError('upstream_error', '行情服务拒绝请求，请检查品种、权限或额度', 502)
                 return self.normalize(data,query)
             except httpx.TimeoutException:
                 if attempt: raise MarketError('upstream_timeout','行情服务超时',504) from None
