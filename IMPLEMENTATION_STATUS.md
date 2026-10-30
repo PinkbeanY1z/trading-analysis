@@ -121,3 +121,13 @@ Invoke-RestMethod -Method Post -Uri http://127.0.0.1:3000/api/agent/chat -Conten
 ## Git交付流程调整（2026-10-30）
 今后每阶段测试通过后提交并立即推送upgrade/python-agent，汇报Hash与结果；不自动合并main、不强推。本次将此前累计的相互依赖改造作为一个实际集成快照提交，不虚构四次历史阶段提交。第四阶段未完整验收项继续保留在上述记录。
 日志、运行轨迹和一次性work脚本保留本地但加入忽略；修正pnpm配置中的临时占位值。README更新为当前Python/Vue入口，避免历史追加说明误导。
+
+## 第五阶段当前验收（2026-10-30，未全部完成）
+- CI：.github/workflows/ci.yml，push upgrade/python-agent / PR main / 手动触发；contents:read；Ubuntu Python3.12，Mock环境；Node24与pnpm11.25.0，frozen-lockfile。YAML解析、本地对应命令通过。缺密钥测试显式选择deepseek模式，避免CI环境变量改变测试语义。
+- 新结构规则：两侧各2根严格局部极值（相等不算）；最近两个价格高点/低点与对应RSI比较形成标准背离候选；RSI状态/动量、价格均线位置、前20根支撑阻力、放量突破/缩量反弹/量价不一致。所有结构仍标为provisional，未实现精确收盘确认。
+- 自动化：72 passed（0失败），Vite构建成功。新增多周期及连续追问API测试使用脚本LLM驱动完整图，验证thread_id复用与图表行情/指标/时间一致性，不证明模型理解能力。
+- 真实验证：scripts/verify_live.py，QQQ/XAU/USD/AAPL×1h/4h/1day，DeepSeek五项任务与连续会话；实际结果Twelve Data=SKIPPED、DeepSeek=SKIPPED，缺项目密钥。真实多轮Function Calling同样SKIPPED。
+- 浏览器：本轮实际打开现有Mock页面，QQQ日线正常；快速切换黄金/4h/QQQ/1h后最终主图正确为QQQ/1h。尚未完成全套多周期浏览器、错误注入和移动端验收；不能声称最终验收完成。
+- Git：23b5d99 CI；261e1e9结构规则；730cccf真实验证脚本；1a843c8多轮API证据测试。各模块测试后立即提交并尝试推送，但GitHub443连接超时/重置，均未确认推送成功。GitHub连接器查询Actions运行数为0；CI远程结果未验证。
+- 旧Node暂保留：Gemini适配与旧AI端点尚未提供完全等价Python替代，新前端不依赖它。不删除独立代理。
+- 保留所有本地提交；不强推、不修改main。待网络恢复后正常push开发分支并核实Actions。

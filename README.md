@@ -37,3 +37,8 @@ node frontend/node_modules/vite/bin/vite.js build frontend
 
 ## Git工作流程
 每个阶段完成后先运行相应测试和构建，通过后创建说明清晰的提交并立即推送到 `upgrade/python-agent`。每次汇报提供提交Hash和实际推送状态。不得自动修改或合并main，不得强制推送。远程同名分支存在时先fetch检查差异；推送失败保留本地提交并如实报告。
+
+## 第五阶段验证入口
+CI定义见 `.github/workflows/ci.yml`，仅执行离线测试和锁文件构建。当前本地72项测试通过；远程CI状态须以Actions实际运行结果为准。
+真实API矩阵：`.venv/Scripts/python.exe scripts/verify_live.py`。缺少项目密钥时输出SKIPPED，默认CI不运行此脚本。
+当前市场结构包含严格局部极值、RSI背离候选和量价规则；未完成K线仍标为暂定信号。完整浏览器异常/移动端验收与真实API验证尚未完成，详见实施记录。
