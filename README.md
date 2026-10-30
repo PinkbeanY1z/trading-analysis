@@ -1,79 +1,39 @@
-﻿# AI 行情结构分析（非自动交易）
+# Trading-Analysis｜行情结构分析智能体
 
-这是一个强调“规则驱动 + 可解释输出”的行情结构分析系统，仅用于结构与风险解读，不做自动交易、不预测涨跌、不提供买卖点。
+现有实现使用 Vue 3 / Vite / Lightweight Charts、Python FastAPI、LangGraph 和兼容 DeepSeek 的原生工具调用接口。仅用于行情结构研究，不下单。
 
-## 项目定位
-- 面向个人日常研究与复盘
-- 以均线结构与量价关系为核心
-- 通过 AI 输出结构化中文解读
-
-## 主要功能
-- K 线与均线可视化：MA7 / MA25 / MA60（固定展示 1 小时周期）
-- 结构化规则结论：趋势方向、均线结构、价格偏离度、量能确认、风险提示
-- AI 综合解读：基于 1h（短期）+ 1day（长期）结构的中文总结
-- 多品种切换：纳指 ETF（QQQ）与黄金（XAU/USD）
-
-## 系统架构
-- 前端：Vue 3 + Vite + Lightweight Charts
-- 后端：Node.js + Express
-- 数据源：Twelve Data（时间序列 K 线）
-- AI：统一 Provider 抽象（DeepSeek / AI Studio / 代理 / Stub）
-
-## 数据流（文本流程图）
-```text
-用户选择品种
-        |
-        v
-前端请求后端 API
-  - /api/market/kline
-  - /api/market/indicators
-  - /api/analysis/ai
-        |
-        v
-后端拉取 1h 行情
-        |
-        v
-计算指标（MA/趋势/量能）
-        |
-        v
-规则评估（风险/结构/提示）
-        |
-        v
-AI 解读（1h + 1day）
-        |
-        v
-前端可视化与文案展示
+## 启动
+在仓库根目录执行（Python 3.11+、Node.js）：
+```powershell
+py -3 -m venv .venv
+& ./.venv/Scripts/python.exe -m pip install -r backend/requirements-tested.txt
+./start-backend.ps1 -Mock
 ```
-
-## 使用方式
-### 1) 启动后端
-```bash
-cd backend
-npm install
-npm run dev
-```
-
-`.env` 示例：
-```bash
-TWELVEDATA_API_KEY=你的key
-AI_PROVIDER=deepseek
-DEEPSEEK_API_KEY=你的key
-AI_STUDIO_API_KEY=你的key
-AI_STUDIO_TIMEOUT_MS=45000
-AI_STUDIO_MAX_TOKENS=600
-```
-
-### 2) 启动前端
-```bash
+另一终端：
+```powershell
 cd frontend
-npm install
-npm run dev
+pnpm install
+pnpm run dev
 ```
+打开 http://localhost:5173 。Vite 将 /api 代理到 FastAPI 3000端口；API文档为 http://localhost:3000/docs 。
 
-如需修改后端地址，配置 `frontend/.env`：
-```bash
-VITE_API_BASE=http://localhost:3000/api
+真实模式：在 backend/.env 不存在时复制 backend/.env.example，配置 Twelve Data 和 DeepSeek 密钥，再运行 `./start-backend.ps1`。不要提交 .env。前端可用 VITE_API_BASE 覆盖 API 地址。
+
+## 当前功能与限制
+- 行情、指标、规则和Agent API；缓存与参数校验。
+- LangGraph模型/工具循环、内存会话、四种工具、结构化证据和报告模板。
+- QQQ/黄金切换、周期选择、均线、RSI、成交量及Agent对话联动。
+- Mock模型是固定QQQ日线脚本，不代表自然语言理解已验证；模拟行情不是实时数据。
+- 无真实密钥时不能验证DeepSeek或Twelve Data。多周期浏览器场景、错误注入与移动端细节尚未完整验收。
+- 内存会话重启丢失，无用户认证，仅适合本地开发。旧 backend/src 仅作迁移参考，新页面不依赖旧Node AI接口。
+
+## 验证
+```powershell
+& ./.venv/Scripts/python.exe -m pytest -c backend/pyproject.toml -q -p no:cacheprovider
+node frontend/node_modules/vite/bin/vite.js build frontend
+& ./.venv/Scripts/python.exe scripts/smoke_agent.py
 ```
+实际阶段记录、架构和限制见 [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)。生成的日志、轨迹、缓存与虚拟环境不纳入Git。
 
-## 免责声明（非投资建议）
-本项目仅用于行情结构研究与学习，输出不构成任何投资建议，请自行判断并承担风险。
+## Git工作流程
+每个阶段完成后先运行相应测试和构建，通过后创建说明清晰的提交并立即推送到 `upgrade/python-agent`。每次汇报提供提交Hash和实际推送状态。不得自动修改或合并main，不得强制推送。远程同名分支存在时先fetch检查差异；推送失败保留本地提交并如实报告。
