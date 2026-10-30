@@ -91,7 +91,7 @@ def test_api():
         assert c.post('/api/agent/chat',json={'message':''}).status_code==422
 
 def test_missing_key():
-    with TestClient(create_app(Settings(market_provider='mock'),agent_settings=AgentSettings(deepseek_api_key=''))) as c:
+    with TestClient(create_app(Settings(market_provider='mock'),agent_settings=AgentSettings(agent_mode='deepseek',deepseek_api_key=''))) as c:
         response=c.post('/api/agent/chat',json={'message':'分析 QQQ'})
         assert response.json()['status']=='failed'
         assert 'missing_deepseek_key' in response.json()['warnings']
@@ -140,3 +140,4 @@ def test_entire_task_timeout():
         assert result.status=='failed'
         assert 'agent_timeout_or_failure' in result.warnings
     asyncio.run(execute())
+
