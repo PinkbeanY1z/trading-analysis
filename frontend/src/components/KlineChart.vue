@@ -12,9 +12,9 @@
       <span>低：{{ info.low }}</span>
       <span>收：{{ info.close }}</span>
     </div>
-    <div ref="priceEl" class="kline-price"></div>
-    <div ref="rsiEl" style="height:120px"></div>
-    <div ref="volumeEl" class="kline-volume"></div>
+    <div ref="priceEl" class="kline-price" aria-label="K线主图"></div>
+    <div ref="rsiEl" class="kline-rsi" aria-label="RSI14 副图"></div>
+    <div ref="volumeEl" class="kline-volume" aria-label="成交量副图"></div>
   </div>
 </template>
 
@@ -29,6 +29,8 @@ const props = defineProps({
   ma20: { type: Array, default: () => [] },
   ma50: { type: Array, default: () => [] },
   ma200: { type: Array, default: () => [] },
+  support: { type: Number, default: null },
+  resistance: { type: Number, default: null },
   pdh: { type: Number, default: null },
   pdl: { type: Number, default: null },
   interval: { type: String, default: "1h" }
@@ -46,11 +48,12 @@ let ma50Series;
 let ma200Series;
 let volumeSeries;
 let syncing = false;
+let supportLine, resistanceLine;
 const maText = ref({ ma20: "-", ma50: "-", ma200: "-" });
 const info = ref({ time: "-", open: "-", high: "-", low: "-", close: "-" });
 
 function toSeriesData(candles) {
-  return candles.map((c) => {
+  return candles.filter(c => Number.isFinite(Date.parse(c.t)) && [c.o,c.h,c.l,c.c].every(v=>Number.isFinite(v) && v>0)).map((c) => {
     // Fix for 1D chart: TradingView expects business days or timestamps.
     // If backend returns ISO string, ensure we parse it correctly.
     // For 1D, we should align to UTC midnight to avoid "1 week gap" visual issues if data is sparse or tz issue.
@@ -67,20 +70,20 @@ function toSeriesData(candles) {
 }
 
 function toVolumeData(candles) {
-  return candles.filter(c => Number.isFinite(c.v)).map((c) => ({
+  return candles.map((c) => ({
     time: Math.floor(new Date(c.t).getTime() / 1000),
-    value: c.v,
-    color: c.c >= c.o ? "rgba(239, 68, 68, 0.5)" : "rgba(34, 197, 94, 0.5)"
-  }));
+    ...(Number.isFinite(c.v) ? {value:c.v,
+    color: c.c >= c.o ? "rgba(239, 68, 68, 0.5)" : "rgba(34, 197, 94, 0.5)"} : {})
+  })).filter(p=>Number.isFinite(p.time));
 }
 
 function toLineData(candles, maValues) {
   return candles
     .map((c, idx) => ({
       time: Math.floor(new Date(c.t).getTime() / 1000),
-      value: maValues[idx]
+      ...(Number.isFinite(maValues[idx]) ? {value:maValues[idx]} : {})
     }))
-    .filter((p) => Number.isFinite(p.value) && Number.isFinite(p.time));
+    .filter((p) => Number.isFinite(p.time));
 }
 
 function render() {
@@ -148,28 +151,28 @@ function render() {
     color: "rgba(34, 197, 94, 0.5)"
   });
 
-  priceChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+  const syncRange = (source) => (range) => {
     if (syncing || !range) return;
     syncing = true;
-    volumeChart.timeScale().setVisibleLogicalRange(range);
-    rsiChart.timeScale().setVisibleLogicalRange(range);
-    syncing = false;
-  });
-  volumeChart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
-    if (syncing || !range) return;
-    syncing = true;
-    priceChart.timeScale().setVisibleLogicalRange(range);
-    syncing = false;
+    try {
+      if(source !== priceChart) priceChart.timeScale().setVisibleRange(range);
+      if(source !== rsiChart && props.rsi.some(Number.isFinite)) rsiChart.timeScale().setVisibleRange(range);
+      if(source !== volumeChart && props.candles.some(c=>Number.isFinite(c.v))) volumeChart.timeScale().setVisibleRange(range);
+    } finally { syncing=false; }
+  };
+  priceChart.timeScale().subscribeVisibleTimeRangeChange(syncRange(priceChart));
+  rsiChart.timeScale().subscribeVisibleTimeRangeChange(syncRange(rsiChart));
+  volumeChart.timeScale().subscribeVisibleTimeRangeChange(range=>{
+    if(props.candles.some(c=>Number.isFinite(c.v))) syncRange(volumeChart)(range);
   });
 
   priceChart.subscribeCrosshairMove((param) => {
     const bar = param?.seriesData?.get(candleSeries);
     if (!bar || !param.time) return;
-    const time = new Date(param.time * 1000);
-    const dateObj = new Date(param.time * 1000);
-    // Format to Beijing Time (UTC+8)
+      const dateObj = new Date(param.time * 1000);
+    // Display exchange session dates on daily charts, UTC+8 intraday.
     const options = {
-       timeZone: "Asia/Shanghai",
+       timeZone: props.interval === "1day" ? "UTC" : "Asia/Shanghai",
        year: "numeric",
        month: "2-digit",
        day: "2-digit",
@@ -192,6 +195,7 @@ function render() {
 
 function updateSeries() {
   if (!priceChart || !volumeChart) return;
+  syncing=true;
   candleSeries.setData(toSeriesData(props.candles));
   volumeSeries.setData(toVolumeData(props.candles));
   ma20Series.setData(toLineData(props.candles, props.ma20));
@@ -199,6 +203,7 @@ function updateSeries() {
   ma200Series.setData(toLineData(props.candles, props.ma200));
   updateKeyLevels();
   rsiSeries.setData(toLineData(props.candles, props.rsi));
+  syncing=false;
   
   // Set Visible Range based on Interval
   // For 1h: Show last ~3 days (approx 72 hours). 
@@ -209,17 +214,20 @@ function updateSeries() {
      if (props.interval === "1h") visibleBars = 60; // ~2.5 days
      if (props.interval === "1day") visibleBars = 60; // 2 months
      
-     const from = Math.max(0, total - visibleBars);
-     const to = total; // can be effectively infinite to lock right
-     
-     priceChart.timeScale().setVisibleLogicalRange({ from, to });
+     const from = Math.floor(Date.parse(props.candles[Math.max(0,total-visibleBars)].t)/1000);
+     const to = Math.floor(Date.parse(props.candles[total-1].t)/1000);
+     if(Number.isFinite(from) && Number.isFinite(to) && from<to) {
+       priceChart.timeScale().setVisibleRange({from,to});
+       if(props.rsi.some(Number.isFinite)) rsiChart.timeScale().setVisibleRange({from,to});
+       if(props.candles.some(c=>Number.isFinite(c.v))) volumeChart.timeScale().setVisibleRange({from,to});
+     }
   } else {
      priceChart.timeScale().fitContent();
   }
 
   const last = (arr) => {
     for (let i = arr.length - 1; i >= 0; i -= 1) {
-      if (arr[i] !== null && arr[i] !== undefined) return arr[i];
+      if (Number.isFinite(arr[i])) return arr[i];
     }
     return null;
   };
@@ -236,7 +244,7 @@ function updateSeries() {
   if (lastCandle) {
     const dateObj = new Date(lastCandle.t);
     const timeStr = new Intl.DateTimeFormat("zh-CN", {
-      timeZone: "Asia/Shanghai",
+      timeZone: props.interval === "1day" ? "UTC" : "Asia/Shanghai",
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
@@ -271,8 +279,12 @@ function updateKeyLevels() {
      pdlLine = null;
   }
   
+  if(supportLine) candleSeries.removePriceLine(supportLine);
+  if(resistanceLine) candleSeries.removePriceLine(resistanceLine);
+  supportLine=Number.isFinite(props.support) ? candleSeries.createPriceLine({price:props.support,color:"#26a69a",lineWidth:1,lineStyle:2,title:"支撑"}) : null;
+  resistanceLine=Number.isFinite(props.resistance) ? candleSeries.createPriceLine({price:props.resistance,color:"#ef5350",lineWidth:1,lineStyle:2,title:"阻力"}) : null;
   // Draw
-  if (props.pdh) {
+  if (Number.isFinite(props.pdh)) {
     pdhLine = candleSeries.createPriceLine({
       price: props.pdh,
       color: '#fbbf24', // Amber-400
@@ -283,7 +295,7 @@ function updateKeyLevels() {
     });
   }
   
-  if (props.pdl) {
+  if (Number.isFinite(props.pdl)) {
     pdlLine = candleSeries.createPriceLine({
       price: props.pdl,
       color: '#f87171', // Red-400
@@ -312,14 +324,18 @@ watch(() => props.ma50, updateSeries);
 watch(() => props.ma200, updateSeries);
 watch(() => props.pdh, updateSeries);
 watch(() => props.pdl, updateSeries);
+watch(() => props.rsi, updateSeries);
+watch(() => props.support, updateKeyLevels);
+watch(() => props.resistance, updateKeyLevels);
 </script>
 
 <style scoped>
 .kline-root {
   width: 100%;
-  height: 100%;
+  height: auto;
   display: grid;
-  grid-template-rows: 3fr 120px 1fr;
+  grid-template-rows: auto auto 280px 110px 85px;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   position: relative;
 }
@@ -329,13 +345,13 @@ watch(() => props.pdl, updateSeries);
   width: 100%;
   height: 100%;
 }
+.kline-root > div { min-width: 0; max-width: 100%; }
 
 .kline-legend {
-  position: absolute;
+  position: static;
   z-index: 2;
-  top: 8px;
-  left: 10px;
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   font-size: 12px;
   background: rgba(19, 23, 34, 0.9);
@@ -345,12 +361,11 @@ watch(() => props.pdl, updateSeries);
 }
 
 .kline-info {
-  position: absolute;
+  position: static;
   z-index: 2;
-  top: 40px;
-  left: 10px;
   display: flex;
-  gap: 12px;
+  flex-wrap: wrap;
+  gap: 8px;
   font-size: 12px;
   background: rgba(19, 23, 34, 0.95);
   border: 1px solid #2a2f3a;

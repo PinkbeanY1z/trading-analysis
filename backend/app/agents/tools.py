@@ -31,7 +31,8 @@ async def snapshot(symbol,asset_class,interval):
 
 def compact(d):
     rows=d['candles']; prior=rows[-21:-1]
-    return dict(symbol=d['symbol'],interval=d['interval'],source=d['source'],last_updated=d['last_updated'],
+    return dict(symbol=d['symbol'],asset_class=d['assetClass'],interval=d['interval'],
+                source=d['source'],last_updated=d['last_updated'],snapshot_id=d['snapshot_id'],
                 warnings=d['warnings'],insufficient_history=d['indicators']['insufficient_history'],
                 technical_indicators=d['indicators']['latest'],market_structure=d['rules'],
                 support_resistance={'support':min(r['l'] for r in prior) if len(prior)==20 else None,

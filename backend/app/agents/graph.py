@@ -76,7 +76,9 @@ class Agent:
         if error: warnings.append(error)
         if self.settings.agent_mode=='mock': warnings.append('Mock LLM：预设工具调用脚本，不代表模型自主理解已验证。')
         symbols=list(dict.fromkeys(d['symbol'] for d in evidence))
+        assets=list(dict.fromkeys(d['asset_class'] for d in evidence))
         return ChatResponse(thread_id=run['thread'],symbol=symbols[0] if len(symbols)==1 else None,
+            asset_class=assets[0] if len(assets)==1 else None,
             timeframes=list(dict.fromkeys(d['interval'] for d in evidence)),
             report=Report(sections=sections(evidence,interpretation),conclusion=interpretation.conclusion if status=='success' and interpretation else '证据不足或执行未完整完成，请查看状态和警告。',evidence=evidence,interpretation=interpretation),
             tool_executions=records,data_sources=list(dict.fromkeys(d['source'] for d in evidence)),warnings=warnings,status=status,mode=self.settings.agent_mode)

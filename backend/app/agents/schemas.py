@@ -40,6 +40,7 @@ class Report(BaseModel):
 class ChatResponse(BaseModel):
     thread_id: str
     symbol: str | None=None
+    asset_class: Literal['stock','gold'] | None=None
     timeframes: list[str]=[]
     report: Report
     tool_executions: list[Execution]

@@ -1,9 +1,11 @@
 import asyncio
+import hashlib
+import json
 from copy import deepcopy
 from datetime import datetime, timezone
 from time import monotonic
 from zoneinfo import ZoneInfo
-from .models import MarketQuery
+from .models import MarketQuery, MarketError
 from .services.indicator_service import calculate
 from .services.structure_service import structure
 
@@ -25,6 +27,8 @@ class MarketService:
             return deepcopy(result)
     async def get(self,q):
         rows,fetched=await self.candles(q)
+        if not rows:
+            raise MarketError('empty_data','没有可用行情',404)
         indicators=calculate(rows,q.asset)
         warnings=['最新K线可能尚未完成；信号包含该K线。']
         if self.provider.name=='mock': warnings.append('模拟历史数据，不是真实行情；未模拟交易所节假日。')
@@ -36,7 +40,6 @@ class MarketService:
         if q.interval!='1day':
             try: daily,_=await self.candles(MarketQuery(symbol=q.symbol,asset=q.asset,interval='1day'))
             except Exception as exc:
-                from .models import MarketError
                 if not isinstance(exc,MarketError): raise
                 daily=[]; warnings.append('日线不可用，PDH/PDL不可用。')
         zone=ZoneInfo('America/New_York') if q.asset=='stock' else timezone.utc
@@ -53,6 +56,11 @@ class MarketService:
                    volume_confirm=None if rv is None else rv>1.5,volatility=volatility,
                    key_levels={'pdh':indicators['pdh'],'pdl':indicators['pdl']},risk_level=risk,action_hint='wait' if risk=='high' else 'watch')
         rules.update(structure(rows,indicators))
+        snapshot_id=hashlib.sha256(json.dumps(
+            {'symbol':q.symbol,'interval':q.interval,'source':self.provider.name,
+             'candles':rows,'indicators':indicators,'rules':rules},
+            sort_keys=True,separators=(',',':'),allow_nan=False).encode()).hexdigest()
         return dict(symbol=q.symbol,assetClass=q.asset,interval=q.interval,source=self.provider.name,
-                    last_updated=rows[-1]['t'],fetched_at=fetched,warnings=warnings,candles=rows,indicators=indicators,rules=rules)
+                    last_updated=rows[-1]['t'],fetched_at=fetched,snapshot_id=snapshot_id,
+                    warnings=warnings,candles=rows,indicators=indicators,rules=rules)
 

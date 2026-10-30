@@ -42,3 +42,5 @@ jobs:
         working-directory: frontend
       - run: pnpm run build
         working-directory: frontend
+      - run: node --test tests/*.test.js
+        working-directory: frontend

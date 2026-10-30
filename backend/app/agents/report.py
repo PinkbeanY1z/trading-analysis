@@ -14,6 +14,12 @@ def sections(evidence, interpretation):
             out.append({'title':title,'text':'；'.join(k+'：'+('不可用' if values.get(k) is None else str(values[k])) for k in keys)})
         out.append({'title':'关键支撑阻力','text':str(e['support_resistance'])})
         out.append({'title':'风险因素','text':'；'.join(e.get('warnings',[]))})
+    cycles = {(e['symbol'], e['interval']): e['technical_indicators']['maAlignment'] for e in evidence}
+    if len(cycles) > 1:
+        labels={'bullish':'多头排列','bearish':'空头排列','mixed':'混合排列','unknown':'数据不足'}
+        out.append({'title':'多周期比较','text':'；'.join(
+            f'{symbol} {interval}：{labels.get(trend,"未知")}'
+            for (symbol,interval),trend in cycles.items())+'。不同周期信号需分别核对，数据不足时不确认一致性。'})
     if interpretation:
         for text in interpretation.explanations:
             # No numerical or reference claims accepted in free prose; use evidence token references.

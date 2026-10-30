@@ -51,6 +51,7 @@ class MarketResponse(BaseModel):
     source: str
     last_updated: str
     fetched_at: str
+    snapshot_id: str
     warnings: list[str]
     candles: list[Candle]
     indicators: dict
