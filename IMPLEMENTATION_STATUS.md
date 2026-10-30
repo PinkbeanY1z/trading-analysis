@@ -1,4 +1,17 @@
-# 实施状态：FastAPI 后端迁移已可运行，整体 Agent 升级未完成
+# 当前总体状态：第六阶段离线端到端验收通过，真实API待密钥验证
+
+更新日期：2026-10-30。Python/FastAPI、LangGraph工具调用和Vue终端均已实现；此前“Agent尚未开发”等语句属于下方历史记录，不代表当前状态。
+
+- 离线：106项Python测试、2项前端协议测试、Vite生产构建通过。
+- 浏览器：QQQ/XAU/USD各三个周期、指标/量能/价格线、工具记录、多周期及同会话追问、延迟请求切换、超时/参数/空行情/数据不足/模型失败/连接中断、刷新会话及375/390/430px均已实际验收。复杂场景使用显式确定性脚本，不证明自然语言理解。
+- 修复：移动CSS覆盖和画布溢出、缺量/指标预热导致主副图时间错位；增加支撑阻力线、asset_class及数据快照Hash，报告与图表不一致时提示。
+- 真实：Twelve Data=SKIPPED、DeepSeek Function Calling=SKIPPED、真实多轮自然语言理解=SKIPPED；仅检查本项目及进程配置，未发现密钥。未静默退回Mock。
+- 第五阶段的5个提交已正常推送，a83b850的CI已成功。第六阶段独立提交：4ff1372（真实验证），cdbc375（图表/快照修复），da0a5d8（验收测试桩与证据），均已推送且对应CI均为success。文档收尾提交的CI以最新Actions记录为准。
+- 当前仍有限制：未验证真实行情/模型、精确交易日历/实时开闭市；内存会话无身份隔离；Mock历史日期并不代表当前市场；模型解释过滤不是完整语义证明。旧Node仅保留Gemini/旧端点迁移参考，新前端不依赖它。
+
+完整浏览器记录：[docs/acceptance-phase6.md](docs/acceptance-phase6.md)。安全密钥填写、错误分类与真实测试：[docs/live-api.md](docs/live-api.md)。安装/Mock/真实启动完整命令以README为准。
+
+## 历史阶段档案（保留原记录，以下时态均对应当时）
 
 ## 工作区与保护范围
 工作目录：E:\ChatGPTFiles\2026-10-29\files-pasted-by-the-user-python\outputs\trading-analysis。
