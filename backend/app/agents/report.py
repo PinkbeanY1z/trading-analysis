@@ -44,6 +44,19 @@ def catalog(evidence):
             for i,d in enumerate(evidence)]
 
 
+def price_direction_supported(data, bullish):
+    """Verify a stated price-structure thesis against actual levels or short-MA slopes."""
+    values=data['technical_indicators']; structure=data['market_structure']
+    close=values.get('close'); level=data['support_resistance'].get('resistance' if bullish else 'support')
+    if isinstance(close,(int,float)) and isinstance(level,(int,float)):
+        if structure.get('breakout')==('above' if bullish else 'below') and (close>level if bullish else close<level):
+            return True
+    averages=[values.get(k) for k in ('ma20','ma50')]
+    slopes=[values.get('slopes',{}).get(k) for k in ('ma20','ma50')]
+    if any(not isinstance(v,(int,float)) for v in [close,*averages,*slopes]): return False
+    return all(close>v if bullish else close<v for v in averages) and all(v>0 if bullish else v<0 for v in slopes)
+
+
 def prose_issue(text, evidence):
     refs=re.findall(REF,text)
     remainder=free_prose(text)
@@ -72,6 +85,10 @@ def validate_interpretation(content, evidence, finish_reason='unknown'):
     if isinstance(data,dict):
         attempt.field_types={k:type(v).__name__ for k,v in data.items() if k in fields}
         attempt.extra_field_count=len(set(data)-fields)
+        if data.get('conclusion') in ('趋势偏多','趋势偏空','周期分歧','需要更多证据'):
+            attempt.proposed_conclusion=data['conclusion']
+        if data.get('conclusion_basis') in ('ma_alignment','price_structure','multi_timeframe','insufficient_evidence'):
+            attempt.conclusion_basis=data['conclusion_basis']
         ids=data.get('evidence_ids',[])
         if isinstance(ids,list):
             attempt.evidence_ids=[v for v in ids if isinstance(v,str) and v in known]
@@ -110,11 +127,18 @@ def validate_interpretation(content, evidence, finish_reason='unknown'):
         for idx,_ in refs:
             if int(idx)<len(evidence) and evidence[int(idx)]['call_id'] not in parsed.evidence_ids:
                 issue('uncited_numeric_reference',('explanations',index))
-    alignments={d['technical_indicators']['maAlignment'] for d in primary}
-    if parsed.conclusion=='趋势偏多' and alignments!={'bullish'}: issue('unsupported_conclusion',('conclusion',))
-    if parsed.conclusion=='趋势偏空' and alignments!={'bearish'}: issue('unsupported_conclusion',('conclusion',))
-    if parsed.conclusion=='周期分歧' and len({d['technical_indicators']['maAlignment'] for d in cited})<2:
-        issue('unsupported_conclusion',('conclusion',))
+    if parsed.conclusion in ('趋势偏多','趋势偏空'):
+        bullish=parsed.conclusion=='趋势偏多'
+        supported=(bool(primary) and all(d['technical_indicators']['maAlignment']==('bullish' if bullish else 'bearish') for d in primary)
+                   if parsed.conclusion_basis=='ma_alignment' else
+                   bool(primary) and all(price_direction_supported(d,bullish) for d in primary)
+                   if parsed.conclusion_basis=='price_structure' else False)
+        if not supported: issue('unsupported_conclusion',('conclusion',))
+    if parsed.conclusion=='周期分歧':
+        signatures={(d['technical_indicators']['maAlignment'],d['market_structure'].get('breakout'),
+                     d['market_structure'].get('price_position',{}).get('ma20')) for d in cited}
+        if parsed.conclusion_basis!='multi_timeframe' or len({d['interval'] for d in cited})<2 or len(signatures)<2:
+            issue('unsupported_conclusion',('conclusion',))
     attempt.valid=not attempt.issues
     return (parsed if attempt.valid else None),attempt
 
@@ -139,6 +163,9 @@ def sections(evidence, interpretation):
             f'{symbol} {interval}：{labels.get(trend,"未知")}'
             for (symbol,interval),trend in cycles.items())+'。不同周期信号需分别核对，数据不足时不确认一致性。'})
     if interpretation:
+        basis={'ma_alignment':'主要周期的均线排列','price_structure':'主要周期的价格突破或短期均线位置与斜率',
+               'multi_timeframe':'被引用周期的结构分歧','insufficient_evidence':'当前证据的限制'}
+        out.append({'title':'综合结论依据','text':interpretation.primary_timeframe+'：'+basis[interpretation.conclusion_basis]+'。该依据已对照工具证据校验，仍受最新K线可能未完成的限制。'})
         for text in interpretation.explanations:
             # No numerical or reference claims accepted in free prose; use evidence token references.
             refs=re.findall(REF,text)

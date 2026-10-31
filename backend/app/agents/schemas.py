@@ -25,6 +25,7 @@ class Interpretation(BaseModel):
     evidence_ids: list[str]=Field(min_length=1)
     conclusion: Literal['趋势偏多','趋势偏空','周期分歧','需要更多证据']
     primary_timeframe: Literal['1h','4h','1day']
+    conclusion_basis: Literal['ma_alignment','price_structure','multi_timeframe','insufficient_evidence']='ma_alignment'
 
 class ReportAttempt(BaseModel):
     model_config=ConfigDict(extra='forbid')
@@ -32,6 +33,8 @@ class ReportAttempt(BaseModel):
     content_type: Literal['text','unsupported']='text'
     json_shape: Literal['object','non_object','invalid','empty']='empty'
     finish_reason: Literal['stop','length','tool_calls','content_filter','unknown']='unknown'
+    proposed_conclusion: Literal['趋势偏多','趋势偏空','周期分歧','需要更多证据'] | None=None
+    conclusion_basis: Literal['ma_alignment','price_structure','multi_timeframe','insufficient_evidence'] | None=None
     field_types: dict[str,str]=Field(default_factory=dict)
     extra_field_count: int=0
     evidence_ids: list[str]=Field(default_factory=list)

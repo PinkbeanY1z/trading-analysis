@@ -157,3 +157,28 @@ def test_cycle_label_exception_does_not_accept_direct_prices():
 def test_reference_paths_are_a_closed_map_and_never_attributes():
     response,_=execute([call(),final(explanations=['读数{{0.ma20.__class__}}。'])],agent_report_retries=0)
     assert response.status=='partial' and 'invalid_numeric_reference' in response.status_reasons
+
+
+@pytest.mark.parametrize('close,conclusion',[(400,'趋势偏空'),(500,'趋势偏多')])
+def test_price_structure_thesis_is_verified_independently_of_long_ma_alignment(close,conclusion):
+    class PriceMove(MockProvider):
+        async def fetch(self,q):
+            rows=await super().fetch(q)
+            rows[-1].update(c=close,h=max(rows[-1]['h'],close),l=min(rows[-1]['l'],close))
+            return rows
+    response,_=execute([call(),final(conclusion=conclusion,conclusion_basis='price_structure')],provider=PriceMove())
+    assert response.status=='success' and response.report.validation.valid
+    assert response.report.evidence[0]['technical_indicators']['maAlignment']=='bullish'
+    assert response.report.interpretation.conclusion_basis=='price_structure'
+
+
+def test_price_structure_label_cannot_justify_an_unsupported_direction():
+    response,_=execute([call(),final(conclusion='趋势偏空',conclusion_basis='price_structure')],agent_report_retries=0)
+    assert response.status=='partial' and 'unsupported_conclusion' in response.status_reasons
+    assert response.report.validation.attempts[0].proposed_conclusion=='趋势偏空'
+    assert response.report.validation.attempts[0].conclusion_basis=='price_structure'
+
+
+def test_cross_timeframe_conclusion_requires_more_than_one_real_period():
+    response,_=execute([call(),final(conclusion='周期分歧',conclusion_basis='multi_timeframe')],agent_report_retries=0)
+    assert response.status=='partial' and 'unsupported_conclusion' in response.status_reasons
