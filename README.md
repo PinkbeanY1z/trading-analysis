@@ -8,6 +8,7 @@ Vue 3 + Vite + Lightweight Charts 行情终端，Python + FastAPI 数据服务�
 - 浏览器已验证QQQ/黄金三个周期、均线/RSI/成交量/价格线、多周期联动、会话复用、错误处理、延迟请求切换和375/390/430px布局。
 - 复杂浏览器场景使用明确的确定性测试桩；生产Mock模型仍固定演示QQQ日线，不代表自然语言理解。
 - 真实Twelve Data＋真实DeepSeek已在浏览器完成QQQ日线→4h追问、黄金日线和QQQ日线+1h，四个任务均success，快照/价格/指标与图表一致。黄金明确缺少成交量；数据仍标记最新K线可能未完成。当前证据见 [第八阶段真实验收](docs/acceptance-phase8.md)，[第七阶段Mock行情报告验收](docs/agent-report-phase7.md)保留为历史记录。
+- 已达到本地面试演示MVP；真实主流程与受控异常展示分开验收。当前缺少多用户鉴权、会话持久化、生产配额/监控/恢复机制及完整交易日历验证，尚需生产工程工作。
 - 实际浏览器证据和复现方法见 [第六阶段验收记录](docs/acceptance-phase6.md)，当前整体状态见 [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)。
 
 ## Windows首次安装
