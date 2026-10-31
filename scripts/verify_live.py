@@ -14,6 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'backend'))
 
 import httpx
+from openai import AsyncOpenAI
 from langchain_core.messages import HumanMessage, ToolMessage
 from app.models import Candle, MarketError, MarketQuery, Settings
 from app.providers import MockProvider, TwelveDataProvider
@@ -35,13 +36,18 @@ KNOWN_TOOLS = {
 }
 
 
+def http_status(exc):
+    code = getattr(exc, 'status_code', None)
+    if code is None and getattr(exc, 'response', None) is not None:
+        code = getattr(exc.response, 'status_code', None)
+    return code if isinstance(code, int) else None
+
+
 def error_category(exc):
     """Return a fixed error code. Never serialize exception text or request URLs."""
     if isinstance(exc, MarketError):
         return exc.code
-    code = getattr(exc, 'status_code', None)
-    if code is None and getattr(exc, 'response', None) is not None:
-        code = getattr(exc.response, 'status_code', None)
+    code = http_status(exc)
     categories = {
         400: 'model_parameters_or_tool_compatibility',
         401: 'authentication', 402: 'insufficient_balance', 403: 'permission',
@@ -59,12 +65,32 @@ def error_category(exc):
     return 'validation_or_code_error'
 
 
+async def probe_deepseek(config, client=None):
+    """One minimal chat request, no retries, tools or market calls; never echo errors."""
+    if not config.deepseek_api_key:
+        return {'deepseek_authentication': 'SKIPPED', 'reason': 'missing_deepseek_key'}
+    try:
+        async with AsyncOpenAI(api_key=config.deepseek_api_key,
+                               base_url=config.deepseek_base_url,
+                               timeout=config.deepseek_timeout, max_retries=0,
+                               http_client=client) as sdk:
+            response = await sdk.chat.completions.with_raw_response.create(
+                model=config.deepseek_model, messages=[{'role': 'user', 'content': 'Reply OK.'}],
+                max_tokens=1, stream=False, extra_body={'thinking': {'type': 'disabled'}})
+            return {'deepseek_authentication': 'PASSED', 'http_status': response.status_code,
+                    'scope': 'minimal_chat_only; Function Calling and account balance not validated'}
+    except Exception as exc:
+        return {'deepseek_authentication': 'FAILED', 'http_status': http_status(exc),
+                'error': error_category(exc)}
+
+
 class ObservedLLM:
     """Observe real native calls and their return messages; don't synthesize tool calls."""
     def __init__(self, llm):
         self.llm = llm
         self.events = []
         self.errors = []
+        self.error_details = []
 
     def bind_tools(self, tools):
         self.bound = self.llm.bind_tools(tools)
@@ -79,6 +105,7 @@ class ObservedLLM:
         except Exception as exc:
             category = error_category(exc)
             self.errors.append(category)
+            self.error_details.append({'category': category, 'http_status': http_status(exc)})
             raise RuntimeError(category) from None
         self.events.append({
             'returned_tool_call_ids': returned,
@@ -158,13 +185,15 @@ def check_task(response, symbol, intervals, source, events):
     return list(dict.fromkeys(failures))
 
 
-async def verify(settings=None, config=None, market_source='twelve_data', client=None, observed=None):
+async def verify(settings=None, config=None, market_source='twelve_data', client=None, observed=None,
+                 run_market_checks=True, tasks=TASKS):
     settings = settings or Settings()
     config = config or AgentSettings(agent_mode='deepseek')
     results = {
         'twelve_data': 'SKIPPED', 'deepseek_function_calling': 'SKIPPED',
         'multi_turn_natural_language': 'SKIPPED',
         'market_source_for_agent': market_source,
+        'requested_tasks': [task[0] for task in tasks],
         'reasons': {}, 'market_cases': [], 'agent_cases': [],
         'scope_notes': [
             'K线及指标验证不代表精确交易所日历、实时开闭市或半日市判断已验证。',
@@ -173,7 +202,10 @@ async def verify(settings=None, config=None, market_source='twelve_data', client
     }
     # The caller owns the injected client; main creates/closes the real client.
     market = MarketService(TwelveDataProvider(client, settings.twelvedata_api_key))
-    if not settings.twelvedata_api_key:
+    if market_source == 'mock' or not run_market_checks:
+        results['twelve_data'] = 'NOT_RUN'
+        results['reasons']['twelve_data'] = 'explicit_mock_market' if market_source == 'mock' else 'market_matrix_disabled'
+    elif not settings.twelvedata_api_key:
         results['reasons']['twelve_data'] = 'missing_twelvedata_key'
     else:
         results['twelve_data'] = 'PASSED'
@@ -205,7 +237,7 @@ async def verify(settings=None, config=None, market_source='twelve_data', client
     agent = Agent(market, config, observed)
     protocol_successes = []
     thread = None
-    for task_id, message, symbol, intervals in TASKS:
+    for task_id, message, symbol, intervals in tasks:
         start = len(observed.events)
         error_start = len(observed.errors)
         response = await agent.chat(ChatRequest(message=message, thread_id=thread if task_id == 'D' else None))
@@ -225,14 +257,21 @@ async def verify(settings=None, config=None, market_source='twelve_data', client
             'symbol': response.symbol, 'timeframes': response.timeframes,
             'data_sources': response.data_sources, 'agent_status': response.status,
             'checks_failed': failures, 'model_errors': observed.errors[error_start:],
+            'model_error_details': observed.error_details[error_start:],
             'tool_execution': [{'call_id': t.call_id, 'name': t.name, 'status': t.status} for t in response.tool_executions],
             'model_rounds': events,
         })
         # Do not repeat invalid credentials/unsupported model calls for all tasks.
-        if observed.errors[error_start:] and observed.errors[-1] in {'authentication', 'permission', 'insufficient_balance', 'model_or_endpoint_unavailable', 'model_parameters_or_tool_compatibility'}:
+        if observed.errors[error_start:] and observed.errors[-1] in {'authentication', 'permission', 'insufficient_balance', 'rate_limit', 'model_or_endpoint_unavailable', 'model_parameters_or_tool_compatibility'}:
             break
     results['deepseek_function_calling'] = 'PASSED' if protocol_successes and all(protocol_successes) else 'FAILED'
-    results['multi_turn_natural_language'] = 'PASSED' if len(results['agent_cases']) == len(TASKS) and all(c['status'] == 'PASSED' for c in results['agent_cases']) else 'FAILED'
+    tasks_passed = len(results['agent_cases']) == len(tasks) and all(c['status'] == 'PASSED' for c in results['agent_cases'])
+    results['agent_tasks'] = 'PASSED' if tasks_passed else 'FAILED'
+    if {'A', 'D'} <= set(results['requested_tasks']):
+        results['multi_turn_natural_language'] = 'PASSED' if tasks_passed else 'FAILED'
+    else:
+        results['multi_turn_natural_language'] = 'NOT_RUN'
+        results['reasons']['multi_turn_natural_language'] = 'followup_A_D_not_selected'
     return results
 
 
@@ -240,15 +279,31 @@ async def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--market-source', choices=('twelve_data', 'mock'), default='twelve_data',
                         help='Agent market source. Mock is explicit and never chosen as a fallback.')
+    parser.add_argument('--deepseek-probe', action='store_true',
+                        help='One minimal real chat request; no Agent, tools or Twelve Data queries.')
+    parser.add_argument('--skip-market-checks', action='store_true',
+                        help='Skip the nine-case market matrix; Agent tools still use --market-source.')
+    parser.add_argument('--tasks', nargs='+', choices=[task[0] for task in TASKS],
+                        default=[task[0] for task in TASKS], help='Only validate the listed tasks, in order. D requires earlier A.')
     args = parser.parse_args(argv)
+    if len(set(args.tasks)) != len(args.tasks):
+        parser.error('tasks must not contain duplicates')
+    if 'D' in args.tasks and ('A' not in args.tasks or args.tasks.index('A') > args.tasks.index('D')):
+        parser.error('follow-up task D requires earlier task A')
     # Keep request URLs (which contain the Twelve Data key) out of inherited log handlers.
     for name in ('httpx', 'httpcore', 'openai', 'langchain_openai'):
         logging.getLogger(name).setLevel(logging.CRITICAL)
     try:
-        settings = Settings()
         config = AgentSettings(agent_mode='deepseek')
-        async with httpx.AsyncClient(timeout=settings.upstream_timeout) as client:
-            results = await verify(settings, config, args.market_source, client)
+        if args.deepseek_probe:
+            results = await probe_deepseek(config)
+        else:
+            settings = Settings()
+            tasks_by_id = {task[0]: task for task in TASKS}
+            tasks = tuple(tasks_by_id[task_id] for task_id in args.tasks)
+            async with httpx.AsyncClient(timeout=settings.upstream_timeout) as client:
+                results = await verify(settings, config, args.market_source, client,
+                                       run_market_checks=not args.skip_market_checks, tasks=tasks)
     except Exception as exc:
         results = {'verification': 'FAILED', 'error': error_category(exc)}
     print(json.dumps(results, ensure_ascii=False, indent=2))

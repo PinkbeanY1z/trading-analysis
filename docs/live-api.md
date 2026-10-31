@@ -58,6 +58,21 @@ pnpm run dev --host 127.0.0.1
 
 ## 真实验收脚本
 
+当前真实诊断为DeepSeek HTTP 401，处理见 [真实API诊断](real-api-diagnosis.md)。先做以下分级验证，避免反复消耗行情额度：
+
+```powershell
+# 一次最小真实DeepSeek请求，最多生成1 token，无工具和行情调用，无重试：
+& ./.venv/Scripts/python.exe scripts/verify_live.py --deepseek-probe
+# 仅在上一步PASSED后执行：真实模型+显式Mock行情、A→D连续追问
+& ./.venv/Scripts/python.exe scripts/verify_live.py --market-source mock --tasks A D
+# 再验证真实模型+真实行情，只获取Agent工具需要的数据，不跑九项矩阵：
+& ./.venv/Scripts/python.exe scripts/verify_live.py --skip-market-checks --tasks A D
+```
+
+最小请求只验证基础聊天鉴权，不代表工具调用或多轮理解已通过。`--tasks`明确结果覆盖范围；D必须在A之后，没有选择A→D的运行不计为多轮PASSED。`--market-source mock`自动省略真实行情矩阵，即使已配置行情密钥也不会请求Twelve Data。`--skip-market-checks`只省略矩阵，真实行情工具仍消耗按需额度。
+
+有意未执行的矩阵在本次输出中为`NOT_RUN`，不覆盖已有真实验收记录。HTTP状态码单独输出，错误仅使用固定分类，不回显上游正文。401/402/403/429等错误会停止后续模型任务；不要用反复重试代替处理密钥、账户或限流问题。
+
 无需先启动 Web 服务；脚本直接调用同一 MarketService 和 LangGraph 执行图：
 
 ```powershell
@@ -103,5 +118,5 @@ pnpm run dev --host 127.0.0.1
 
 校验 K 线时间和指标合法性不等于精确交易所日历、实时开闭市或半日市时段已经验证。当前系统保留可能未完成的最新 K 线并明确警告，结构是暂定判断。数据来源和时间应始终随报告一起查看。
 
-离线自动化测试通过不能代替上述真实请求。未配置密钥时应报告三个真实项均 `SKIPPED`，并继续完成浏览器和其他离线验收。
+离线自动化测试通过不能代替上述真实请求；真实请求失败也不否定已通过的离线测试。只有确实缺少所需密钥时才标记`SKIPPED`，实际发起请求后失败必须记录`FAILED`及原因。当前已配置两个密钥、行情8/9成功、DeepSeek401，不适用历史“未配置密钥”的结论。
 

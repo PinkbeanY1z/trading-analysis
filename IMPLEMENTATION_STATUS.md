@@ -1,15 +1,19 @@
-# 当前总体状态：第六阶段离线端到端验收通过，真实API待密钥验证
+# 当前总体状态：离线验收通过；真实行情8/9成功，DeepSeek鉴权401待处理
 
-更新日期：2026-10-30。Python/FastAPI、LangGraph工具调用和Vue终端均已实现；此前“Agent尚未开发”等语句属于下方历史记录，不代表当前状态。
+更新日期：2026-10-31。Python/FastAPI、LangGraph工具调用和Vue终端均已实现；此前“Agent尚未开发”和“未配置密钥”等语句属于历史记录，不代表当前状态。
 
-- 离线：106项Python测试、2项前端协议测试、Vite生产构建通过。
+- 离线：原有106项Python测试通过；本轮新增12项定向测试，总计118项通过。原前端2项协议测试、Vite生产构建通过；真实鉴权失败不改变离线验收结论。
 - 浏览器：QQQ/XAU/USD各三个周期、指标/量能/价格线、工具记录、多周期及同会话追问、延迟请求切换、超时/参数/空行情/数据不足/模型失败/连接中断、刷新会话及375/390/430px均已实际验收。复杂场景使用显式确定性脚本，不证明自然语言理解。
 - 修复：移动CSS覆盖和画布溢出、缺量/指标预热导致主副图时间错位；增加支撑阻力线、asset_class及数据快照Hash，报告与图表不一致时提示。
-- 真实：Twelve Data=SKIPPED、DeepSeek Function Calling=SKIPPED、真实多轮自然语言理解=SKIPPED；仅检查本项目及进程配置，未发现密钥。未静默退回Mock。
+- 真实行情（用户提供的运行结果，本轮未重复矩阵）：QQQ与XAU/USD三个周期、AAPL的1h/1day共8项PASSED，均350根、source=twelve_data；AAPL/4h为FAILED(rate_limit)。九项矩阵整体未全通过，不能记为SKIPPED或全部PASSED。
+- 真实模型：本轮确认项目backend/.env中的两个密钥均已加载，当前进程无覆盖。最低成本单次真实请求返回HTTP 401(authentication)；DeepSeek Function Calling与真实多轮自然语言理解仍为FAILED（鉴权阻断），没有执行工具。需用户在本地更新DeepSeek平台API Key后重试，不静默回退Mock。
+- 验证器修复：`--deepseek-probe`只做一次最小鉴权请求；`--market-source mock`不再先执行真实行情矩阵；`--tasks A D`支持低成本连续追问；`--skip-market-checks`允许真实联合测试只获取工具所需行情。错误保留HTTP状态码并脱敏，401/402/403/429等终止后续任务。
 - 第五阶段的5个提交已正常推送，a83b850的CI已成功。第六阶段独立提交：4ff1372（真实验证），cdbc375（图表/快照修复），da0a5d8（验收测试桩与证据），均已推送且对应CI均为success。文档收尾提交的CI以最新Actions记录为准。
-- 当前仍有限制：未验证真实行情/模型、精确交易日历/实时开闭市；内存会话无身份隔离；Mock历史日期并不代表当前市场；模型解释过滤不是完整语义证明。旧Node仅保留Gemini/旧端点迁移参考，新前端不依赖它。
+- 当前仍有限制：AAPL/4h因限流未通过，真实模型工具调用与真实联合分析受401阻断；精确交易日历/实时开闭市未验证；内存会话无身份隔离；Mock历史日期并不代表当前市场；模型解释过滤不是完整语义证明。旧Node仅保留Gemini/旧端点迁移参考，新前端不依赖它。
 
 完整浏览器记录：[docs/acceptance-phase6.md](docs/acceptance-phase6.md)。安全密钥填写、错误分类与真实测试：[docs/live-api.md](docs/live-api.md)。安装/Mock/真实启动完整命令以README为准。
+
+最新真实诊断及手动处理：[docs/real-api-diagnosis.md](docs/real-api-diagnosis.md)。以下历史记录中的SKIPPED仅描述当时运行，不覆盖本轮真实结果。
 
 ## 历史阶段档案（保留原记录，以下时态均对应当时）
 

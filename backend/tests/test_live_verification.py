@@ -74,7 +74,7 @@ def test_explicit_mock_market_real_protocol_path_with_test_double():
     result = asyncio.run(live.verify(Settings(_env_file=None,twelvedata_api_key=''), AgentSettings(_env_file=None,agent_mode='deepseek',deepseek_api_key='test-only'), market_source='mock', observed=observed))
     # Only tests the verifier; this assertion is not a real-model acceptance claim.
     assert result['deepseek_function_calling'] == result['multi_turn_natural_language'] == 'PASSED'
-    assert result['twelve_data'] == 'SKIPPED'
+    assert result['twelve_data'] == 'NOT_RUN'
     assert [c['task'] for c in result['agent_cases']] == ['A','D','B','C','E']
     assert result['agent_cases'][1]['model_rounds'][0]['user_message_count'] == 2
     assert result['market_source_for_agent'] == 'mock'
@@ -97,6 +97,7 @@ def test_native_model_exception_diagnostic_is_sanitized():
     result = asyncio.run(live.verify(Settings(_env_file=None,twelvedata_api_key=''), AgentSettings(_env_file=None,agent_mode='deepseek',deepseek_api_key='test-only'), market_source='mock', observed=observed))
     assert result['deepseek_function_calling'] == result['multi_turn_natural_language'] == 'FAILED'
     assert result['agent_cases'][0]['model_errors'] == ['authentication']
+    assert result['agent_cases'][0]['model_error_details'] == [{'category':'authentication','http_status':401}]
     assert len(result['agent_cases']) == 1
     assert 'do-not-print-secret' not in json.dumps(result)
 
@@ -109,3 +110,78 @@ def test_live_market_validation_requires_real_source_and_usable_history():
     live.validate_market(data, MarketQuery(symbol='QQQ',interval='1day'))
     data['indicators']['latest']['ma200'] = None
     with pytest.raises(ValueError): live.validate_market(data, MarketQuery(symbol='QQQ',interval='1day'))
+
+
+@pytest.mark.parametrize('status,category', [
+    (200,None), (400,'model_parameters_or_tool_compatibility'), (401,'authentication'),
+    (402,'insufficient_balance'), (403,'permission'), (429,'rate_limit'),
+])
+def test_minimal_auth_probe_has_one_request_and_no_secret_output(status, category):
+    requests = []
+    def handler(request):
+        requests.append(request)
+        assert request.url.path == '/chat/completions'
+        assert request.headers['authorization'] == 'Bearer test-only-key'
+        body = json.loads(request.content)
+        assert body['max_tokens'] == 1 and body['thinking'] == {'type':'disabled'}
+        assert 'tools' not in body
+        return httpx.Response(status, json={'error':{'message':'upstream-secret-do-not-output'}})
+    async def run():
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        return await live.probe_deepseek(AgentSettings(_env_file=None, deepseek_api_key='test-only-key'), client)
+    result = asyncio.run(run())
+    assert len(requests) == 1
+    assert result['http_status'] == status
+    assert result['deepseek_authentication'] == ('PASSED' if status == 200 else 'FAILED')
+    if category: assert result['error'] == category
+    assert 'secret' not in json.dumps(result) and 'test-only-key' not in json.dumps(result)
+
+
+def test_minimal_probe_distinguishes_network_failure():
+    def handler(request):
+        raise httpx.ConnectError('secret-upstream-url', request=request)
+    async def run():
+        client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        return await live.probe_deepseek(AgentSettings(_env_file=None, deepseek_api_key='test-only-key'), client)
+    result = asyncio.run(run())
+    assert result['error'] == 'network' and result['http_status'] is None
+    assert 'secret' not in json.dumps(result)
+
+
+def test_mock_market_never_runs_real_matrix_even_with_configured_market_key(monkeypatch):
+    async def forbidden(*args, **kwargs):
+        pytest.fail('mock-market verification must not spend real market quota')
+    monkeypatch.setattr(TwelveDataProvider, 'fetch', forbidden)
+    observed = live.ObservedLLM(ScriptedLLM(plan()[:4]))
+    result = asyncio.run(live.verify(
+        Settings(_env_file=None,twelvedata_api_key='test-only-market-key'),
+        AgentSettings(_env_file=None,agent_mode='deepseek',deepseek_api_key='test-only-model-key'),
+        market_source='mock', observed=observed, tasks=live.TASKS[:2]))
+    assert result['twelve_data'] == 'NOT_RUN' and not result['market_cases']
+    assert result['requested_tasks'] == ['A','D']
+    assert result['agent_tasks'] == result['multi_turn_natural_language'] == 'PASSED'
+    assert result['agent_cases'][1]['model_rounds'][0]['user_message_count'] == 2
+
+
+def test_skipping_matrix_only_fetches_data_requested_by_real_market_agent(monkeypatch):
+    queries = []
+    async def fetch(provider, query):
+        queries.append((query.symbol,query.interval))
+        return await MockProvider().fetch(query)
+    monkeypatch.setattr(TwelveDataProvider, 'fetch', fetch)
+    observed = live.ObservedLLM(ScriptedLLM(plan()[:2]))
+    result = asyncio.run(live.verify(
+        Settings(_env_file=None,twelvedata_api_key='test-only-market-key'),
+        AgentSettings(_env_file=None,agent_mode='deepseek',deepseek_api_key='test-only-model-key'),
+        observed=observed, run_market_checks=False, tasks=live.TASKS[:1]))
+    assert queries == [('QQQ','1day')]
+    assert result['twelve_data'] == result['multi_turn_natural_language'] == 'NOT_RUN'
+    assert not result['market_cases'] and result['requested_tasks'] == ['A']
+    assert result['deepseek_function_calling'] == result['agent_tasks'] == 'PASSED'
+
+
+@pytest.mark.parametrize('tasks', [['D'], ['D','A'], ['A','A']])
+def test_cli_rejects_invalid_followup_or_duplicate_tasks_without_requests(tasks):
+    with pytest.raises(SystemExit) as exc:
+        asyncio.run(live.main(['--tasks',*tasks]))
+    assert exc.value.code == 2
