@@ -7,6 +7,7 @@ class ScriptedLLM:
         self.responses=list(responses or [])
         self.seen=[]
     def bind_tools(self,tools): return self
+    def bind_report(self): return self
     async def ainvoke(self,messages):
         self.seen.append(messages)
         if self.responses: return self.responses.pop(0)
@@ -16,7 +17,7 @@ class ScriptedLLM:
         names=['get_market_data','calculate_technical_indicators','analyze_market_structure']
         if step<3:
             return AIMessage(content='',tool_calls=[{'id':f'demo_{step}','name':names[step],'args':{'symbol':'QQQ','interval':'1day'}}])
-        return AIMessage(content='{"evidence_ids":["demo_0","demo_1","demo_2"],"conclusion":"需要更多证据"}')
+        return AIMessage(content='{"evidence_ids":["demo_0","demo_1","demo_2"],"primary_timeframe":"1day","conclusion":"需要更多证据"}')
 
 def model(settings):
     if settings.agent_mode=='mock': return ScriptedLLM()

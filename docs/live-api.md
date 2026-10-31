@@ -58,7 +58,7 @@ pnpm run dev --host 127.0.0.1
 
 ## 真实验收脚本
 
-当前真实诊断为DeepSeek HTTP 401，处理见 [真实API诊断](real-api-diagnosis.md)。先做以下分级验证，避免反复消耗行情额度：
+当前真实DeepSeek＋Mock行情的A→D已通过，详情见 [第七阶段报告验收](agent-report-phase7.md)。此前HTTP401诊断保留为历史排错记录。需要重测时按以下分级验证，避免反复消耗行情额度：
 
 ```powershell
 # 一次最小真实DeepSeek请求，最多生成1 token，无工具和行情调用，无重试：
@@ -118,5 +118,13 @@ pnpm run dev --host 127.0.0.1
 
 校验 K 线时间和指标合法性不等于精确交易所日历、实时开闭市或半日市时段已经验证。当前系统保留可能未完成的最新 K 线并明确警告，结构是暂定判断。数据来源和时间应始终随报告一起查看。
 
-离线自动化测试通过不能代替上述真实请求；真实请求失败也不否定已通过的离线测试。只有确实缺少所需密钥时才标记`SKIPPED`，实际发起请求后失败必须记录`FAILED`及原因。当前已配置两个密钥、行情8/9成功、DeepSeek401，不适用历史“未配置密钥”的结论。
+离线自动化测试通过不能代替上述真实请求；真实请求失败也不否定已通过的离线测试。只有确实缺少所需密钥时才标记`SKIPPED`，实际发起请求后失败必须记录`FAILED`及原因。当前行情8/9成功，真实DeepSeek＋Mock行情A→D已通过，不适用历史“未配置密钥/401”的结论。
+
+## 报告与主要周期校验
+
+`primary_timeframe`是模型明确声明且有本轮已引用证据的主要周期；`timeframes`仍列出实际证据周期，主要周期在前。任务D允许日线背景，同时严格要求4h为主要周期，不允许无关周期或错误标的。品种、来源、价格、指标、快照与支撑阻力继续逐项对应实际工具记录。
+
+`report.validation`仅记录模型输出的JSON结构、可信证据ID、未知ID数量、固定校验错误、数值引用检查和finish_reason，不记录模型原文、系统提示词或请求头。`status_reasons`区分缺少/无效结论、JSON/Schema错误、引用错误、历史不足、工具失败等；兼容原有success/partial/failed/insufficient_data状态。
+
+默认`AGENT_REPORT_RETRIES=1`，设置范围0到2；修复调用仍计入最大模型轮数与总超时。修复只使用已有工具证据与当前任务，不重新拉行情或调用工具，使用[官方JSON Output](https://api-docs.deepseek.com/guides/json_mode/)模式。无有效报告仍返回partial；无证据为failed，历史不足为insufficient_data。模板继续展示可追溯数据，不将模板回退当成模型报告通过。
 

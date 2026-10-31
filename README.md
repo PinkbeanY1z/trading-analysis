@@ -4,10 +4,10 @@ Vue 3 + Vite + Lightweight Charts 行情终端，Python + FastAPI 数据服务�
 
 ## 当前验收状态
 
-- Python原106项测试保留通过，本轮增加12项，总118项通过；前端2项协议测试及Vite构建通过。
+- Python原118项测试保留通过，第七阶段新增26项，总144项通过；前端3项协议测试及Vite构建通过。
 - 浏览器已验证QQQ/黄金三个周期、均线/RSI/成交量/价格线、多周期联动、会话复用、错误处理、延迟请求切换和375/390/430px布局。
 - 复杂浏览器场景使用明确的确定性测试桩；生产Mock模型仍固定演示QQQ日线，不代表自然语言理解。
-- 真实行情：用户已执行九项矩阵，8项PASSED，AAPL/4h因rate_limit失败。真实DeepSeek单次诊断返回HTTP 401，Function Calling和真实多轮为FAILED（鉴权阻断）；密钥已经加载，不应归类为SKIPPED。处理步骤见 [真实API诊断](docs/real-api-diagnosis.md)。
+- 真实行情：用户此前执行九项矩阵，8项PASSED，AAPL/4h因rate_limit失败，本轮未重跑。真实DeepSeek＋显式Mock行情的QQQ A→D已通过Function Calling、会话追问与报告校验，两轮均status=success；D以4h为主、日线为背景。此结论不覆盖真实行情联合分析和其他任务。证据见 [第七阶段报告验收](docs/agent-report-phase7.md)。
 - 实际浏览器证据和复现方法见 [第六阶段验收记录](docs/acceptance-phase6.md)，当前整体状态见 [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)。
 
 ## Windows首次安装
@@ -101,10 +101,12 @@ flowchart TD
 
 四个工具为行情查询、技术指标、市场结构和多周期比较，复用统一数据服务。数值来自Python工具；报告与图表使用同一数据快照Hash，数据更新或修订会提示重新分析。当前可能未完成的K线保留并警告，结构信号为暂定。
 
+Agent响应新增`primary_timeframe`、`status_reasons`、`report.validation`；主周期必须有本轮已引用证据。默认一次受限报告修复仍失败时保留失败状态。数字和嵌套斜率/偏离率/价格引用只从工具返回的字段映射解析，不执行任意属性访问。
+
 ## 边界与旧后端
 
 - 内存会话重启丢失，无身份认证，仅适合本地开发；刷新页面会新建会话。
-- 真实行情八项已成功，一项限流；真实模型品种周期理解仍受401阻断。精确交易所日历/半日市及实时市场开闭市未验证；历史过期不能解释为当前实时行情。
+- 真实行情八项已成功，一项限流；真实模型QQQ日线→4h追问已通过，但更广自然语言任务和真实行情联合流程待验证。精确交易所日历/半日市及实时市场开闭市未验证；历史过期不能解释为当前实时行情。
 - 模型解释数字只能引用工具证据，未通过校验的数字被删除，回退为确定性模板。自由文字过滤并不等于完整语义事实校验。
 - 旧 `backend/src` 与Node依赖暂作参考：旧Gemini适配和旧AI端点尚未提供完全等价的Python替代。新前端和正式行情/Agent入口均使用Python。独立Gemini代理保留，不作破坏性清理。
 - 验收控制接口仅存在于单独启动的 `scripts/browser_fixture.py`，正常FastAPI入口不提供这些接口。

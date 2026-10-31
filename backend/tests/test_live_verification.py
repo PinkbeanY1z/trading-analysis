@@ -65,7 +65,7 @@ def plan():
             name='compare_timeframes'; args['intervals'] = ['1day','1h']
         else:
             name='analyze_market_structure'; args['interval'] = next(iter(frames)) if frames else '1day'
-        result += [AIMessage(content='',tool_calls=[dict(id=task,name=name,args=args)]), AIMessage(content=json.dumps({'evidence_ids':[task],'conclusion':'需要更多证据'}))]
+        result += [AIMessage(content='',tool_calls=[dict(id=task,name=name,args=args)]), AIMessage(content=json.dumps({'evidence_ids':[task],'primary_timeframe':args.get('interval','1day'),'conclusion':'需要更多证据'}))]
     return result
 
 
@@ -185,3 +185,34 @@ def test_cli_rejects_invalid_followup_or_duplicate_tasks_without_requests(tasks)
     with pytest.raises(SystemExit) as exc:
         asyncio.run(live.main(['--tasks',*tasks]))
     assert exc.value.code == 2
+
+
+@pytest.mark.parametrize('frames,primary,expected',[
+    (['1day','4h'],'4h',None),
+    (['1day','4h'],'1day','wrong_primary_timeframe'),
+    (['1day','4h','1h'],'4h','wrong_timeframes'),
+])
+def test_followup_target_allows_daily_context_but_requires_four_hour_focus(frames,primary,expected):
+    async def run():
+        observed=live.ObservedLLM(ScriptedLLM([
+            AIMessage(content='',tool_calls=[dict(id='compare',name='compare_timeframes',args={'symbol':'QQQ','intervals':frames})]),
+            AIMessage(content=json.dumps({'evidence_ids':['compare'],'primary_timeframe':primary,'conclusion':'需要更多证据'})),
+        ]))
+        agent=live.Agent(MarketService(MockProvider()),AgentSettings(_env_file=None,agent_mode='deepseek',deepseek_api_key='test-only'),observed)
+        response=await agent.chat(live.ChatRequest(message='那它的4小时呢？'))
+        assert response.status=='success' and response.timeframes[0]==primary
+        return live.check_task(response,'QQQ',{'4h'},'mock',observed.events,primary='4h',background=('1day',))
+    failures=asyncio.run(run())
+    assert (failures==[]) if expected is None else expected in failures
+
+
+def test_verifier_rejects_changed_report_numbers_against_execution_snapshot():
+    async def run():
+        observed=live.ObservedLLM(ScriptedLLM(plan()[:2]))
+        agent=live.Agent(MarketService(MockProvider()),AgentSettings(_env_file=None,agent_mode='deepseek',deepseek_api_key='test-only'),observed)
+        response=await agent.chat(live.ChatRequest(message='分析QQQ日线'))
+        assert live.check_task(response,'QQQ',{'1day'},'mock',observed.events,primary='1day')==[]
+        response.report.evidence[0]['technical_indicators']['rsi']=12345
+        failures=live.check_task(response,'QQQ',{'1day'},'mock',observed.events,primary='1day')
+        assert 'numeric_evidence_mismatch' in failures
+    asyncio.run(run())

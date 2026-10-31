@@ -1,19 +1,20 @@
-# 当前总体状态：离线验收通过；真实行情8/9成功，DeepSeek鉴权401待处理
+# 当前总体状态：真实DeepSeek＋Mock行情A→D报告验收通过；真实行情联合流程待验证
 
 更新日期：2026-10-31。Python/FastAPI、LangGraph工具调用和Vue终端均已实现；此前“Agent尚未开发”和“未配置密钥”等语句属于历史记录，不代表当前状态。
 
-- 离线：原有106项Python测试通过；本轮新增12项定向测试，总计118项通过。原前端2项协议测试、Vite生产构建通过；真实鉴权失败不改变离线验收结论。
+- 离线：原有118项Python测试保留通过，本轮新增26项，总144项通过；前端新增1项，总3项协议测试及Vite生产构建通过。原有106项基础测试仍在测试集中。
 - 浏览器：QQQ/XAU/USD各三个周期、指标/量能/价格线、工具记录、多周期及同会话追问、延迟请求切换、超时/参数/空行情/数据不足/模型失败/连接中断、刷新会话及375/390/430px均已实际验收。复杂场景使用显式确定性脚本，不证明自然语言理解。
 - 修复：移动CSS覆盖和画布溢出、缺量/指标预热导致主副图时间错位；增加支撑阻力线、asset_class及数据快照Hash，报告与图表不一致时提示。
 - 真实行情（用户提供的运行结果，本轮未重复矩阵）：QQQ与XAU/USD三个周期、AAPL的1h/1day共8项PASSED，均350根、source=twelve_data；AAPL/4h为FAILED(rate_limit)。九项矩阵整体未全通过，不能记为SKIPPED或全部PASSED。
-- 真实模型：本轮确认项目backend/.env中的两个密钥均已加载，当前进程无覆盖。最低成本单次真实请求返回HTTP 401(authentication)；DeepSeek Function Calling与真实多轮自然语言理解仍为FAILED（鉴权阻断），没有执行工具。需用户在本地更新DeepSeek平台API Key后重试，不静默回退Mock。
+- 真实模型：先前401已解除。修复前现场复现A、D均partial：JSON和Pydantic结构有效，但每轮3个证据ID均不匹配真实调用；D还被旧验证器机械集合相等规则误判。修复后正式CLI `--market-source mock --tasks A D`返回Function Calling、multi_turn_natural_language、agent_tasks均PASSED，A/D均success；各一次报告校验即通过，没有使用报告重试。D的primary_timeframe=4h，timeframes=[4h,1day]，同会话上下文检查通过。此结果仅覆盖真实模型＋显式Mock行情的QQQ A→D，不代表其他自然语言任务或真实行情联合流程已通过。
+- 报告修复：StateGraph增加受限repair节点，显式提供当前轮证据ID、索引和完整引用token目录；Pydantic校验主周期、引用、数值及方向结论。默认最多一次JSON模式修复，仍失败保留partial/failed/insufficient_data和具体status_reasons；未通过引用验证的解释对象不再返回。报告诊断仅保留结构、可信ID、固定错误和结束原因，不包含原文、提示词或密钥。前端依据主周期选图，无可靠主周期时保留原图。
 - 验证器修复：`--deepseek-probe`只做一次最小鉴权请求；`--market-source mock`不再先执行真实行情矩阵；`--tasks A D`支持低成本连续追问；`--skip-market-checks`允许真实联合测试只获取工具所需行情。错误保留HTTP状态码并脱敏，401/402/403/429等终止后续任务。
 - 第五阶段的5个提交已正常推送，a83b850的CI已成功。第六阶段独立提交：4ff1372（真实验证），cdbc375（图表/快照修复），da0a5d8（验收测试桩与证据），均已推送且对应CI均为success。文档收尾提交的CI以最新Actions记录为准。
-- 当前仍有限制：AAPL/4h因限流未通过，真实模型工具调用与真实联合分析受401阻断；精确交易日历/实时开闭市未验证；内存会话无身份隔离；Mock历史日期并不代表当前市场；模型解释过滤不是完整语义证明。旧Node仅保留Gemini/旧端点迁移参考，新前端不依赖它。
+- 当前仍有限制：AAPL/4h此前因限流未通过，本轮未重跑Twelve Data；真实行情＋模型联合分析、B/C/E等更广任务本轮未验证；精确交易日历/实时开闭市未验证；内存会话无身份隔离；Mock历史日期并不代表当前市场；模型自由文字校验不是完整语义证明。旧Node仅保留Gemini/旧端点迁移参考，新前端不依赖它。
 
 完整浏览器记录：[docs/acceptance-phase6.md](docs/acceptance-phase6.md)。安全密钥填写、错误分类与真实测试：[docs/live-api.md](docs/live-api.md)。安装/Mock/真实启动完整命令以README为准。
 
-最新真实诊断及手动处理：[docs/real-api-diagnosis.md](docs/real-api-diagnosis.md)。以下历史记录中的SKIPPED仅描述当时运行，不覆盖本轮真实结果。
+最新真实报告验收：[docs/agent-report-phase7.md](docs/agent-report-phase7.md)。[此前401诊断](docs/real-api-diagnosis.md)保留作历史记录，当前无需继续处理该401。以下历史记录中的SKIPPED仅描述当时运行，不覆盖本轮真实结果。
 
 ## 历史阶段档案（保留原记录，以下时态均对应当时）
 

@@ -15,3 +15,9 @@ test('same timestamp with revised candle snapshot must not match',()=>{
   assert.equal(evidenceMatches(d,e),true);
   assert.equal(evidenceMatches({...d,snapshot_id:'revised'},e),false);
 });
+
+test('explicit primary timeframe selects the chart and must have evidence',()=>{
+  assert.deepEqual(chartPlan({...response,primary_timeframe:'1h'}).frames,['1h','1day']);
+  assert.equal(chartPlan({...response,primary_timeframe:'4h'}),null);
+  assert.equal(chartPlan({...response,primary_timeframe:null}),null);
+});

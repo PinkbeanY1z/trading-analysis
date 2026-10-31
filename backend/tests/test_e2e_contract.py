@@ -8,8 +8,8 @@ import json
 
 def test_multi_turn_api_chart_evidence():
     def call(id,name,args): return AIMessage(content='',tool_calls=[dict(id=id,name=name,args=args)])
-    def final(id): return AIMessage(content=json.dumps({'evidence_ids':[id],'conclusion':'需要更多证据'}))
-    llm=ScriptedLLM([call('a','compare_timeframes',{'symbol':'QQQ','intervals':['1day','1h']}),final('a'),call('b','analyze_market_structure',{'symbol':'QQQ','interval':'4h'}),final('b')])
+    def final(id,primary='1day'): return AIMessage(content=json.dumps({'evidence_ids':[id],'primary_timeframe':primary,'conclusion':'需要更多证据'}))
+    llm=ScriptedLLM([call('a','compare_timeframes',{'symbol':'QQQ','intervals':['1day','1h']}),final('a'),call('b','analyze_market_structure',{'symbol':'QQQ','interval':'4h'}),final('b','4h')])
     with TestClient(create_app(Settings(market_provider='mock'),agent_settings=AgentSettings(agent_mode='mock'),llm=llm)) as c:
         a=c.post('/api/agent/chat',json={'message':'比较QQQ日线与1小时'}).json()
         assert a['status']=='success' and a['timeframes']==['1day','1h']

@@ -1,5 +1,7 @@
 # 真实API诊断（2026-10-31）
 
+> 历史记录：下述401已在后续运行解除。当前真实DeepSeek＋Mock行情的QQQ A→D已通过；最新报告诊断与验证见[第七阶段验收](agent-report-phase7.md)。保留本文用于鉴权问题排查，不作为当前失败状态。
+
 ## 当前结论与证据来源
 
 用户本轮提供`scripts/verify_live.py`的真实运行结果：QQQ、XAU/USD的1h/4h/1day及AAPL的1h/1day，共8项PASSED，350根K线且source=twelve_data；AAPL/4h为FAILED(rate_limit)。本轮没有重复九项行情矩阵。该结果是部分成功，不是SKIPPED，也不是九项全通过。

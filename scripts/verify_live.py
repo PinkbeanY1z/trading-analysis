@@ -96,18 +96,32 @@ class ObservedLLM:
         self.bound = self.llm.bind_tools(tools)
         return self
 
+    def bind_report(self):
+        parent=self
+        runnable=(self.llm.bind_report() if hasattr(self.llm,'bind_report') else
+                  self.llm.bind(response_format={'type':'json_object'},max_tokens=2000))
+        class ReportModel:
+            async def ainvoke(self,messages):
+                return await parent.invoke(runnable,messages,'report_repair')
+        return ReportModel()
+
     async def ainvoke(self, messages):
+        return await self.invoke(self.bound,messages,'research')
+
+    async def invoke(self, runnable, messages, phase):
         # Keep no message content, API URLs, response headers or key in diagnostics.
         returned = [m.tool_call_id for m in messages if isinstance(m, ToolMessage)]
         users = sum(isinstance(m, HumanMessage) for m in messages)
         try:
-            answer = await self.bound.ainvoke(messages)
+            answer = await runnable.ainvoke(messages)
         except Exception as exc:
             category = error_category(exc)
             self.errors.append(category)
             self.error_details.append({'category': category, 'http_status': http_status(exc)})
             raise RuntimeError(category) from None
         self.events.append({
+            'phase': phase,
+            'finish_reason': answer.response_metadata.get('finish_reason') if answer.response_metadata.get('finish_reason') in {'stop','length','tool_calls','content_filter'} else 'unknown',
             'returned_tool_call_ids': returned,
             'user_message_count': users,
             'native_tool_calls': [
@@ -146,7 +160,7 @@ def validate_market(data, query):
         raise ValueError('invalid indicator range')
 
 
-def check_task(response, symbol, intervals, source, events):
+def check_task(response, symbol, intervals, source, events, primary=None, background=()):
     """Check actual evidence and native transcript, not just a successful HTTP status."""
     failures = []
     if response.status != 'success':
@@ -156,8 +170,13 @@ def check_task(response, symbol, intervals, source, events):
     observed_intervals = set(response.timeframes)
     if not observed_intervals or not observed_intervals <= {'1h', '4h', '1day'}:
         failures.append('invalid_timeframes')
-    if intervals is not None and observed_intervals != intervals:
+    if intervals is not None and (not intervals <= observed_intervals or not observed_intervals <= intervals | set(background)):
         failures.append('wrong_timeframes')
+    actual_primary=getattr(response,'primary_timeframe',None)
+    if actual_primary not in observed_intervals:
+        failures.append('invalid_primary_timeframe')
+    if primary is not None and actual_primary != primary:
+        failures.append('wrong_primary_timeframe')
     if response.mode != 'deepseek' or set(response.data_sources) != {source}:
         failures.append('unexpected_model_or_data_source')
     executions = response.tool_executions
@@ -170,6 +189,13 @@ def check_task(response, symbol, intervals, source, events):
     if not native or not {tc['call_id'] for tc in native} <= returned:
         failures.append('tool_results_not_returned_to_model')
     evidence = response.report.evidence
+    validation=getattr(response.report,'validation',None)
+    interpretation=getattr(response.report,'interpretation',None)
+    if not validation or not validation.valid or not interpretation:
+        failures.append('report_validation_failed')
+    elif interpretation.primary_timeframe!=actual_primary or not any(
+            e.get('interval')==actual_primary and e.get('call_id') in interpretation.evidence_ids for e in evidence):
+        failures.append('primary_evidence_not_cited')
     if not evidence:
         failures.append('missing_evidence')
     for item in evidence:
@@ -178,7 +204,8 @@ def check_task(response, symbol, intervals, source, events):
         execution = next((t for t in executions if t.call_id == item.get('call_id')), None)
         origins = execution.result.get('timeframes', [execution.result]) if execution else []
         origin = next((d for d in origins if d.get('symbol') == symbol and d.get('interval') == item.get('interval')), None)
-        if origin is None or item.get('technical_indicators') != origin.get('technical_indicators'):
+        if origin is None or any(item.get(k)!=origin.get(k) for k in
+                                 ('technical_indicators','support_resistance','market_structure','snapshot_id','last_updated','asset_class')):
             failures.append('numeric_evidence_mismatch')
         if item.get('technical_indicators', {}).get('rsi') is None:
             failures.append('missing_rsi')
@@ -244,7 +271,9 @@ async def verify(settings=None, config=None, market_source='twelve_data', client
         if task_id == 'A':
             thread = response.thread_id
         events = observed.events[start:]
-        failures = check_task(response, symbol, intervals, market_source, events)
+        primary=next(iter(intervals)) if intervals is not None and len(intervals)==1 else None
+        failures = check_task(response, symbol, intervals, market_source, events,
+                              primary=primary,background=('1day',) if task_id=='D' else ())
         if task_id == 'D':
             if response.thread_id != thread or not events or events[0]['user_message_count'] < 2:
                 failures.append('session_context_not_reused')
@@ -255,8 +284,11 @@ async def verify(settings=None, config=None, market_source='twelve_data', client
         results['agent_cases'].append({
             'task': task_id, 'status': 'FAILED' if failures else 'PASSED',
             'symbol': response.symbol, 'timeframes': response.timeframes,
+            'primary_timeframe': response.primary_timeframe,
             'data_sources': response.data_sources, 'agent_status': response.status,
             'checks_failed': failures, 'model_errors': observed.errors[error_start:],
+            'status_reasons': response.status_reasons,
+            'report_validation': response.report.validation.model_dump(),
             'model_error_details': observed.error_details[error_start:],
             'tool_execution': [{'call_id': t.call_id, 'name': t.name, 'status': t.status} for t in response.tool_executions],
             'model_rounds': events,

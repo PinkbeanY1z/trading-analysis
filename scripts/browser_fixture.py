@@ -68,6 +68,7 @@ def plan(scenario):
     ]
     responses.append(AIMessage(content=json.dumps({
         "evidence_ids": [call_id for call_id, _, _ in calls],
+        "primary_timeframe": "4h" if scenario == Scenario.followup else "1day",
         "conclusion": "需要更多证据",
     }, ensure_ascii=False)))
     return responses

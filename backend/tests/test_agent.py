@@ -12,8 +12,8 @@ from fastapi.testclient import TestClient
 
 def call(name='analyze_market_structure',id='a',**args):
     return AIMessage(content='',tool_calls=[dict(id=id,name=name,args={'symbol':'QQQ',**args})])
-def final(*ids):
-    return AIMessage(content=json.dumps({'evidence_ids':list(ids),'conclusion':'需要更多证据'}))
+def final(*ids,primary='1day'):
+    return AIMessage(content=json.dumps({'evidence_ids':list(ids),'primary_timeframe':primary,'conclusion':'需要更多证据'}))
 def run(plan,message='分析 QQQ 的日线趋势和 RSI14。',provider=None,**settings):
     async def execute():
         model=ScriptedLLM(plan)
@@ -39,7 +39,7 @@ def test_scenarios(message,plan):
 
 def test_context():
     async def execute():
-        model=ScriptedLLM([call(),final('a'),call(id='b',interval='4h'),final('b')])
+        model=ScriptedLLM([call(),final('a'),call(id='b',interval='4h'),final('b',primary='4h')])
         agent=Agent(MarketService(MockProvider()),AgentSettings(agent_mode='mock'),model)
         first=await agent.chat(ChatRequest(message='分析 QQQ 的日线'))
         second=await agent.chat(ChatRequest(message='它的4小时呢？',thread_id=first.thread_id))
