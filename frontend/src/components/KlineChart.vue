@@ -6,7 +6,7 @@
       <span class="legend-item ma200">{{ legacy ? "MA60" : "MA200" }}({{ maText.ma200 }})</span>
     </div>
     <div class="kline-info">
-      <span>时间：{{ info.time }}</span>
+      <span>{{ info.mode === 'cursor' ? '光标K线' : '最新K线' }} 时间：{{ info.time }}</span>
       <span>开：{{ info.open }}</span>
       <span>高：{{ info.high }}</span>
       <span>低：{{ info.low }}</span>
@@ -21,6 +21,7 @@
 <script setup>
 import { onMounted, onBeforeUnmount, watch, ref } from "vue";
 import { createChart } from "lightweight-charts";
+import { chartReadout, formatChartTime } from '../api/chart-readout';
 
 const props = defineProps({
   legacy: Boolean,
@@ -50,14 +51,17 @@ let volumeSeries;
 let syncing = false;
 let supportLine, resistanceLine;
 const maText = ref({ ma20: "-", ma50: "-", ma200: "-" });
-const info = ref({ time: "-", open: "-", high: "-", low: "-", close: "-" });
+const info = ref({ mode: 'latest', time: "-", open: "-", high: "-", low: "-", close: "-" });
+
+function updateReadout(time) {
+  const result = chartReadout(props.candles, {ma20:props.ma20, ma50:props.ma50, ma200:props.ma200}, time);
+  info.value = result.info;
+  maText.value = result.maText;
+}
 
 function toSeriesData(candles) {
   return candles.filter(c => Number.isFinite(Date.parse(c.t)) && [c.o,c.h,c.l,c.c].every(v=>Number.isFinite(v) && v>0)).map((c) => {
-    // Fix for 1D chart: TradingView expects business days or timestamps.
-    // If backend returns ISO string, ensure we parse it correctly.
-    // For 1D, we should align to UTC midnight to avoid "1 week gap" visual issues if data is sparse or tz issue.
-    // TwelveData returns YYYY-MM-DD for 1day.
+    // Preserve the provider's original timestamps, including exchange-local daily dates.
     const time = new Date(c.t).getTime() / 1000; 
     return {
       time: time,
@@ -98,11 +102,12 @@ function render() {
       vertLines: { color: "#1f2430" },
       horzLines: { color: "#1f2430" }
     },
-    timeScale: { borderColor: "#2a2f3a" },
+    localization: { timeFormatter: formatChartTime },
+    timeScale: { borderColor: "#2a2f3a", timeVisible: props.interval !== '1day' },
     rightPriceScale: { borderColor: "#2a2f3a" }
   });
 
-  rsiChart=createChart(rsiEl.value,{autoSize:true,layout:{background:{color:"#131722"},textColor:"#ddd"}});
+  rsiChart=createChart(rsiEl.value,{autoSize:true,layout:{background:{color:"#131722"},textColor:"#ddd"},localization:{timeFormatter:formatChartTime},timeScale:{timeVisible:props.interval!=='1day'}});
   rsiSeries=rsiChart.addLineSeries({color:"#c084fc",title:"RSI14"});
   candleSeries = priceChart.addCandlestickSeries({
     upColor: "#ef4444",
@@ -142,7 +147,8 @@ function render() {
       vertLines: { color: "#1f2430" },
       horzLines: { color: "#1f2430" }
     },
-    timeScale: { borderColor: "#2a2f3a" },
+    localization: { timeFormatter: formatChartTime },
+    timeScale: { borderColor: "#2a2f3a", timeVisible: props.interval !== '1day' },
     rightPriceScale: { borderColor: "#2a2f3a" }
   });
 
@@ -168,28 +174,7 @@ function render() {
 
   priceChart.subscribeCrosshairMove((param) => {
     const bar = param?.seriesData?.get(candleSeries);
-    if (!bar || !param.time) return;
-      const dateObj = new Date(param.time * 1000);
-    // Display exchange session dates on daily charts, UTC+8 intraday.
-    const options = {
-       timeZone: props.interval === "1day" ? "UTC" : "Asia/Shanghai",
-       year: "numeric",
-       month: "2-digit",
-       day: "2-digit",
-       hour12: false
-    };
-    if (props.interval !== "1day") {
-       options.hour = "2-digit";
-    }
-    const timeStr = new Intl.DateTimeFormat("zh-CN", options).format(dateObj);
-
-    info.value = {
-      time: timeStr,
-      open: bar.open?.toFixed(2) ?? "-",
-      high: bar.high?.toFixed(2) ?? "-",
-      low: bar.low?.toFixed(2) ?? "-",
-      close: bar.close?.toFixed(2) ?? "-"
-    };
+    updateReadout(bar && Number.isFinite(param.time) ? param.time : undefined);
   });
 }
 
@@ -225,42 +210,7 @@ function updateSeries() {
      priceChart.timeScale().fitContent();
   }
 
-  const last = (arr) => {
-    for (let i = arr.length - 1; i >= 0; i -= 1) {
-      if (Number.isFinite(arr[i])) return arr[i];
-    }
-    return null;
-  };
-  const ma20 = last(props.ma20);
-  const ma50 = last(props.ma50);
-  const ma200 = last(props.ma200);
-  maText.value = {
-    ma20: ma20 === null ? "-" : Number(ma20).toFixed(2),
-    ma50: ma50 === null ? "-" : Number(ma50).toFixed(2),
-    ma200: ma200 === null ? "-" : Number(ma200).toFixed(2)
-  };
-
-  const lastCandle = props.candles[props.candles.length - 1];
-  if (lastCandle) {
-    const dateObj = new Date(lastCandle.t);
-    const timeStr = new Intl.DateTimeFormat("zh-CN", {
-      timeZone: props.interval === "1day" ? "UTC" : "Asia/Shanghai",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      hour12: false
-    }).format(dateObj);
-
-    info.value = {
-      time: timeStr,
-      open: Number(lastCandle.o).toFixed(2),
-      high: Number(lastCandle.h).toFixed(2),
-      low: Number(lastCandle.l).toFixed(2),
-      close: Number(lastCandle.c).toFixed(2)
-    };
-
-  }
+  updateReadout();
 }
 
 let pdhLine = null;

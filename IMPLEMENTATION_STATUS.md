@@ -1,14 +1,15 @@
-# 当前总体状态：真实Twelve Data＋DeepSeek的QQQ A→D闭环通过；黄金与多周期正在验收
+# 当前总体状态：真实Twelve Data＋DeepSeek四个浏览器主流程通过，异常提示正在收尾
 
 更新日期：2026-10-31。Python/FastAPI、LangGraph工具调用和Vue终端均已实现；此前“Agent尚未开发”和“未配置密钥”等语句属于历史记录，不代表当前状态。
 
-- 离线：原有144项Python测试保留通过，第八阶段方向依据修复新增4项，总148项通过；前端3项协议测试及Vite生产构建通过。
-- 第八阶段真实联合初步结果：浏览器QQQ日线→4h同会话均success、source=twelve_data；各350根，原生调用与执行记录逐一匹配，工具结果回到模型，报告/行情价格、均线、RSI、支撑阻力、时间和快照一致。两轮各使用一次受限报告修复。黄金与多周期尚在验收，详细结果见[第八阶段记录](docs/acceptance-phase8.md)。
+- 离线：原有144项Python测试保留通过，第八阶段方向依据修复新增4项，总148项通过；前端新增4项时间/光标读数测试，总7项及Vite生产构建通过。
+- 第八阶段真实联合结果：浏览器QQQ日线→4h同会话、黄金日线、QQQ日线+1h均success、source=twelve_data；每周期350根，10个原生调用与执行记录逐一匹配，工具结果回到模型，报告/行情价格、均线、RSI、支撑阻力、时间和快照一致。A/D/B各一次受限报告修复，黄金无需修复。异常提示收尾中，详细结果见[第八阶段记录](docs/acceptance-phase8.md)。
+- 图表实际修复：盘中信息从未标注的上海时区/整小时改为统一UTC并保留分钟；光标OHLC与MA图例现在读取同一根后端K线，移出恢复最新，预热缺失不向前取旧值。浏览器已验证，主流程控制台无error/warn。
 - 实际修复：新增显式conclusion_basis并校验价格突破或短均线位置/斜率，避免只靠长期均线排列裁决所有方向判断；跨周期结论仍需多个实际interval，单周期长短均线混合不冒充跨周期分歧。安全诊断新增枚举结论和依据，仍不记录模型原文或密钥。
 - 浏览器：QQQ/XAU/USD各三个周期、指标/量能/价格线、工具记录、多周期及同会话追问、延迟请求切换、超时/参数/空行情/数据不足/模型失败/连接中断、刷新会话及375/390/430px均已实际验收。复杂场景使用显式确定性脚本，不证明自然语言理解。
 - 修复：移动CSS覆盖和画布溢出、缺量/指标预热导致主副图时间错位；增加支撑阻力线、asset_class及数据快照Hash，报告与图表不一致时提示。
 - 真实行情（用户提供的运行结果，本轮未重复矩阵）：QQQ与XAU/USD三个周期、AAPL的1h/1day共8项PASSED，均350根、source=twelve_data；AAPL/4h为FAILED(rate_limit)。九项矩阵整体未全通过，不能记为SKIPPED或全部PASSED。
-- 真实模型：先前401已解除。修复前现场复现A、D均partial：JSON和Pydantic结构有效，但每轮3个证据ID均不匹配真实调用；D还被旧验证器机械集合相等规则误判。修复后正式CLI `--market-source mock --tasks A D`返回Function Calling、multi_turn_natural_language、agent_tasks均PASSED，A/D均success；各一次报告校验即通过，没有使用报告重试。D的primary_timeframe=4h，timeframes=[4h,1day]，同会话上下文检查通过。此结果仅覆盖真实模型＋显式Mock行情的QQQ A→D，不代表其他自然语言任务或真实行情联合流程已通过。
+- 第七阶段历史结果：先前401已解除。修复前现场复现A、D均partial：JSON和Pydantic结构有效，但每轮3个证据ID均不匹配真实调用；D还被旧验证器机械集合相等规则误判。修复后正式CLI `--market-source mock --tasks A D`返回Function Calling、multi_turn_natural_language、agent_tasks均PASSED，A/D均success；各一次报告校验即通过，没有使用报告重试。该阶段仅覆盖真实模型＋Mock行情；当前真实联合结果以第八阶段记录为准。
 - 报告修复：StateGraph增加受限repair节点，显式提供当前轮证据ID、索引和完整引用token目录；Pydantic校验主周期、引用、数值及方向结论。默认最多一次JSON模式修复，仍失败保留partial/failed/insufficient_data和具体status_reasons；未通过引用验证的解释对象不再返回。报告诊断仅保留结构、可信ID、固定错误和结束原因，不包含原文、提示词或密钥。前端依据主周期选图，无可靠主周期时保留原图。
 - 验证器修复：`--deepseek-probe`只做一次最小鉴权请求；`--market-source mock`不再先执行真实行情矩阵；`--tasks A D`支持低成本连续追问；`--skip-market-checks`允许真实联合测试只获取工具所需行情。错误保留HTTP状态码并脱敏，401/402/403/429等终止后续任务。
 - 第五阶段的5个提交已正常推送，a83b850的CI已成功。第六阶段独立提交：4ff1372（真实验证），cdbc375（图表/快照修复），da0a5d8（验收测试桩与证据），均已推送且对应CI均为success。文档收尾提交的CI以最新Actions记录为准。

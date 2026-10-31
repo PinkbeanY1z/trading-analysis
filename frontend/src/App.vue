@@ -15,12 +15,12 @@
       <section class="chart-wrap" aria-label="行情图表">
         <div class="chart-grid">
           <article v-for="d in charts" :key="d.symbol + d.interval" class="chart-area" :data-testid="'chart-' + d.interval">
-            <h2>{{ d.symbol }} · {{ d.interval }} {{ d.interval === interval ? '主图' : '比较图' }} · {{ d.source === 'mock' ? '模拟行情' : d.source }}</h2>
-            <small>数据时间 {{ d.last_updated }}<br>获取时间 {{ d.fetched_at }}</small>
+            <h2>{{ d.symbol }} · {{ d.interval }} {{ d.interval === interval ? '主图' : '比较图' }} · {{ d.source === 'mock' ? '模拟行情' : d.source === 'twelve_data' ? '真实行情 · Twelve Data' : d.source }}</h2>
+            <small>来源 {{ d.source }} · 数据时间 {{ d.last_updated }}<br>获取时间 {{ d.fetched_at }}</small>
             <p v-if="d.indicators.insufficient_history" role="status">历史不足，长期均线不可用，结构尚未确认。</p>
             <KlineChart :legacy="legacy" :candles="d.candles" :ma20="d.indicators[legacy ? 'ma7' : 'ma20']" :ma50="d.indicators[legacy ? 'ma25' : 'ma50']" :ma200="d.indicators[legacy ? 'ma60' : 'ma200']" :rsi="d.indicators.rsi" :pdh="d.indicators.pdh" :pdl="d.indicators.pdl" :support="d.rules.support" :resistance="d.rules.resistance" :interval="d.interval" />
             <p class="levels">支撑 {{ format(d.rules.support) }} · 阻力 {{ format(d.rules.resistance) }} · PDH {{ format(d.indicators.pdh) }} · PDL {{ format(d.indicators.pdl) }}</p>
-            <p>RSI14 {{ format(d.indicators.latest.rsi) }} · {{ d.assetClass === 'gold' || !d.indicators.latest.volumeAvailable ? '成交量不可用' : '成交量 ' + format(d.indicators.latest.volume) }}</p>
+            <p>最新 RSI14 {{ format(d.indicators.latest.rsi) }} · {{ d.assetClass === 'gold' || !d.indicators.latest.volumeAvailable ? '成交量不可用' : '最新成交量 ' + format(d.indicators.latest.volume) }}</p>
           </article>
         </div>
         <p v-if="!charts.length">{{ loading ? '正在获取行情…' : '暂无行情' }}</p>

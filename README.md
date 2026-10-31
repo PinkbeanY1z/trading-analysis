@@ -4,10 +4,10 @@ Vue 3 + Vite + Lightweight Charts 行情终端，Python + FastAPI 数据服务�
 
 ## 当前验收状态
 
-- Python原118项测试保留通过，第七阶段新增26项，总144项通过；前端3项协议测试及Vite构建通过。
+- Python148项测试、前端7项测试及Vite构建通过。
 - 浏览器已验证QQQ/黄金三个周期、均线/RSI/成交量/价格线、多周期联动、会话复用、错误处理、延迟请求切换和375/390/430px布局。
 - 复杂浏览器场景使用明确的确定性测试桩；生产Mock模型仍固定演示QQQ日线，不代表自然语言理解。
-- 真实行情：用户此前执行九项矩阵，8项PASSED，AAPL/4h因rate_limit失败，本轮未重跑。真实DeepSeek＋显式Mock行情的QQQ A→D已通过Function Calling、会话追问与报告校验，两轮均status=success；D以4h为主、日线为背景。此结论不覆盖真实行情联合分析和其他任务。证据见 [第七阶段报告验收](docs/agent-report-phase7.md)。
+- 真实Twelve Data＋真实DeepSeek已在浏览器完成QQQ日线→4h追问、黄金日线和QQQ日线+1h，四个任务均success，快照/价格/指标与图表一致。黄金明确缺少成交量；数据仍标记最新K线可能未完成。当前证据见 [第八阶段真实验收](docs/acceptance-phase8.md)，[第七阶段Mock行情报告验收](docs/agent-report-phase7.md)保留为历史记录。
 - 实际浏览器证据和复现方法见 [第六阶段验收记录](docs/acceptance-phase6.md)，当前整体状态见 [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)。
 
 ## Windows首次安装
@@ -67,7 +67,7 @@ notepad backend/.env
 
 ```powershell
 & ./.venv/Scripts/python.exe -m pytest -c backend/pyproject.toml -q -p no:cacheprovider
-node --test frontend/tests/linkage.test.js
+node --test frontend/tests/*.test.js
 node frontend/node_modules/vite/bin/vite.js build frontend
 & ./.venv/Scripts/python.exe scripts/smoke_agent.py
 # 可选真实请求矩阵，无需先启动Web服务：
@@ -106,7 +106,7 @@ Agent响应新增`primary_timeframe`、`status_reasons`、`report.validation`；
 ## 边界与旧后端
 
 - 内存会话重启丢失，无身份认证，仅适合本地开发；刷新页面会新建会话。
-- 真实行情八项已成功，一项限流；真实模型QQQ日线→4h追问已通过，但更广自然语言任务和真实行情联合流程待验证。精确交易所日历/半日市及实时市场开闭市未验证；历史过期不能解释为当前实时行情。
+- 真实联合四项主流程已通过；此前AAPL/4h限流未重测，更广任务和供应商实时异常未覆盖。精确交易所日历/半日市及实时市场开闭市未验证；历史过期不能解释为当前实时行情。
 - 模型解释数字只能引用工具证据，未通过校验的数字被删除，回退为确定性模板。自由文字过滤并不等于完整语义事实校验。
 - 旧 `backend/src` 与Node依赖暂作参考：旧Gemini适配和旧AI端点尚未提供完全等价的Python替代。新前端和正式行情/Agent入口均使用Python。独立Gemini代理保留，不作破坏性清理。
 - 验收控制接口仅存在于单独启动的 `scripts/browser_fixture.py`，正常FastAPI入口不提供这些接口。
