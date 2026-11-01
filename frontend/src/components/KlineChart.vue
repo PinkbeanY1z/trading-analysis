@@ -77,7 +77,7 @@ function toVolumeData(candles) {
   return candles.map((c) => ({
     time: Math.floor(new Date(c.t).getTime() / 1000),
     ...(Number.isFinite(c.v) ? {value:c.v,
-    color: c.c >= c.o ? "rgba(239, 68, 68, 0.5)" : "rgba(34, 197, 94, 0.5)"} : {})
+    color: c.c >= c.o ? "rgba(54, 197, 154, 0.5)" : "rgba(240, 120, 131, 0.5)"} : {})
   })).filter(p=>Number.isFinite(p.time));
 }
 
@@ -95,27 +95,27 @@ function render() {
   priceChart = createChart(priceEl.value, {
     autoSize: true,
     layout: {
-      background: { color: "#131722" },
+      background: { color: "#121418" },
       textColor: "#e5e7eb"
     },
     grid: {
-      vertLines: { color: "#1f2430" },
-      horzLines: { color: "#1f2430" }
+      vertLines: { color: "#1c1f25" },
+      horzLines: { color: "#1c1f25" }
     },
     localization: { timeFormatter: formatChartTime },
     timeScale: { borderColor: "#2a2f3a", timeVisible: props.interval !== '1day' },
     rightPriceScale: { borderColor: "#2a2f3a" }
   });
 
-  rsiChart=createChart(rsiEl.value,{autoSize:true,layout:{background:{color:"#131722"},textColor:"#ddd"},localization:{timeFormatter:formatChartTime},timeScale:{timeVisible:props.interval!=='1day'}});
+  rsiChart=createChart(rsiEl.value,{autoSize:true,layout:{background:{color:"#121418"},textColor:"#a4aab8"},localization:{timeFormatter:formatChartTime},timeScale:{timeVisible:props.interval!=='1day'}});
   rsiSeries=rsiChart.addLineSeries({color:"#c084fc",title:"RSI14"});
   candleSeries = priceChart.addCandlestickSeries({
-    upColor: "#ef4444",
-    downColor: "#22c55e",
-    borderUpColor: "#dc2626",
-    borderDownColor: "#16a34a",
-    wickUpColor: "#dc2626",
-    wickDownColor: "#16a34a"
+    upColor: "#36c59a",
+    downColor: "#f07883",
+    borderUpColor: "#36c59a",
+    borderDownColor: "#f07883",
+    wickUpColor: "#36c59a",
+    wickDownColor: "#f07883"
   });
 
   ma20Series = priceChart.addLineSeries({
@@ -140,12 +140,12 @@ function render() {
   volumeChart = createChart(volumeEl.value, {
     autoSize: true,
     layout: {
-      background: { color: "#131722" },
+      background: { color: "#121418" },
       textColor: "#e5e7eb"
     },
     grid: {
-      vertLines: { color: "#1f2430" },
-      horzLines: { color: "#1f2430" }
+      vertLines: { color: "#1c1f25" },
+      horzLines: { color: "#1c1f25" }
     },
     localization: { timeFormatter: formatChartTime },
     timeScale: { borderColor: "#2a2f3a", timeVisible: props.interval !== '1day' },
@@ -282,11 +282,11 @@ watch(() => props.resistance, updateKeyLevels);
 <style scoped>
 .kline-root {
   width: 100%;
-  height: auto;
+  height: clamp(470px, calc(100dvh - 310px), 1200px);
   display: grid;
-  grid-template-rows: auto auto 280px 110px 85px;
+  grid-template-rows: auto auto minmax(250px, 1fr) 80px 64px;
   grid-template-columns: minmax(0, 1fr);
-  gap: 8px;
+  gap: 4px;
   position: relative;
 }
 
@@ -301,34 +301,34 @@ watch(() => props.resistance, updateKeyLevels);
   position: static;
   z-index: 2;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 10px;
-  font-size: 12px;
-  background: rgba(19, 23, 34, 0.9);
-  border: 1px solid #2a2f3a;
-  border-radius: 8px;
-  padding: 4px 8px;
+  font-size: 10px;
+  color: var(--muted);
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding: 4px 0;
 }
 
 .kline-info {
   position: static;
   z-index: 2;
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
-  font-size: 12px;
-  background: rgba(19, 23, 34, 0.95);
-  border: 1px solid #2a2f3a;
-  border-radius: 8px;
-  padding: 4px 8px;
-  color: #e5e7eb;
+  font-size: 10px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  padding: 4px 0;
+  color: var(--muted);
 }
+.kline-info span, .legend-item { white-space: nowrap; font-variant-numeric: tabular-nums; }
 
 .legend-item {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  color: #e5e7eb;
+  color: var(--muted);
 }
 
 .legend-item::before {
