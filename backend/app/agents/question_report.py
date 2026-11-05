@@ -17,6 +17,11 @@ def values_for(evidence):
             elif isinstance(value, (int,float,str)) and not isinstance(value,bool): values[path] = value
     visit(evidence.get('calculation',{}), 'calculation.')
     visit(evidence.get('analysis',{}), 'analysis.')
+    trade_plan = evidence.get('trade_plan', {})
+    if trade_plan:
+        values['trade_plan.reasons'] = '；'.join(trade_plan.get('reasons', []))
+        for key in ('method', 'structural_confirmation'):
+            if isinstance(trade_plan.get(key), str): values['trade_plan.' + key] = trade_plan[key]
     return values
 
 
@@ -24,11 +29,15 @@ def evidence_catalog(evidence):
     result = []
     for index, data in enumerate(evidence):
         values = values_for(data)
+        if data.get('trade_plan'):
+            # This tool answers feasibility, not a duplicate indicator table.
+            values = {key:value for key,value in values.items() if key.startswith(('calculation.','trade_plan.'))}
         # Expose measured values once, never send hundreds of raw candles to the model.
         result.append({'index':index, 'evidence_id':data['call_id'],
                        'symbol':data.get('symbol'), 'interval':data.get('interval'),
                        'source':data['source'], 'snapshot_id':data.get('snapshot_id'),
                        'calculation_id':data.get('calculation_id'),
+                       'plan_available':data.get('trade_plan',{}).get('available'),
                        'references':{key:{'token':'{{'+str(index)+'.'+key+'}}','value':value}
                                      for key,value in values.items()}})
     return result
@@ -128,8 +137,11 @@ def validate_answer(content, evidence, plan, message, finish_reason='unknown'):
                 elif evidence[position]['call_id'] not in block.evidence_ids: issue('uncited_numeric_reference',('answer_blocks',index))
                 elif 'breakeven_win_rate' in key and '盈亏平衡' not in block.text+block.title:
                     issue('theoretical_rate_mislabeled',('answer_blocks',index))
-            if re.search(r'胜率.{0,5}(很高|较高|可达|预计|估计)|保证获利|稳赚|已经确认企稳|多次测试确认的强',text):
-                issue('unsupported_trading_claim',('answer_blocks',index))
+            for claim in re.finditer(r'胜率.{0,5}(很高|较高|可达|预计|估计)|保证获利|稳赚|已经确认企稳|多次测试确认的强',text):
+                prefix = re.split(r'[。；;，,\n]', text[:claim.start()])[-1]
+                # Explicitly rejecting an unsupported claim is not asserting it.
+                if not re.search(r'不能|不得|不应|不可|不代表|不等于|并非|不是|尚未|避免|无法|没有证据|非$', prefix[-25:]):
+                    issue('unsupported_trading_claim',('answer_blocks',index))
             # A real RSI/price token is still not a measured historical win rate.
             # Check semantic roles as well as the existence of numerical evidence.
             for clause in re.split(r'[。；;\n]', text):
@@ -151,7 +163,10 @@ def validate_answer(content, evidence, plan, message, finish_reason='unknown'):
                 issue('unverified_historical_win_rate',('answer_blocks',index))
     if covered != question_ids: issue('unanswered_subquestion')
     if watch_count>3: issue('too_many_observation_conditions')
-    if len(re.findall(r'[\u4e00-\u9fff]',''.join(visible)))>450: issue('answer_too_verbose')
+    limit = 450 if len(plan.questions) > 3 else 300
+    if not attempt.issues:
+        visible_text = render_text(''.join(visible), evidence)
+        if len(re.findall(r'[\u4e00-\u9fff]', visible_text)) > limit: issue('answer_too_verbose')
     if kinds=={'watch'} and (watch_count<1 or any(b.kind not in ('watch','direct_answer') and not b.detail for b in answer.answer_blocks)):
         issue('irrelevant_answer_blocks')
     if 'win_rate' in kinds:

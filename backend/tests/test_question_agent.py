@@ -469,3 +469,32 @@ def test_user_question_cannot_be_answered_only_inside_collapsed_details():
     response, _, _ = execute([planning(), tool('structure'), final(draft([block('结构仍需确认。', detail=True)]))])
     assert response.status == 'partial'
     assert 'unanswered_subquestion' in response.status_reasons
+
+
+@pytest.mark.parametrize('text', ['不能把超卖等同于已经确认企稳。', '不应声称胜率较高，实际历史胜率未验证。', '滚动区间极值，非多次测试确认的强支撑。'])
+def test_explicit_rejection_of_unverified_claim_is_allowed(text):
+    response, _, _ = execute([planning(), tool('structure'), final(draft([block(text)]))])
+    assert response.status == 'success', response.status_reasons
+
+
+@pytest.mark.parametrize('text', ['已经确认企稳。', '不能保证获利，但胜率较高。'])
+def test_positive_claim_after_negation_still_fails(text):
+    response, _, _ = execute([planning(), tool('structure'), final(draft([block(text)]))])
+    assert response.status == 'partial'
+    assert 'unsupported_trading_claim' in response.status_reasons
+
+
+def test_long_default_answer_requires_condensing_or_collapsing_details():
+    response, _, _ = execute([planning(), tool('structure'), final(draft([block('结构仍需等待确认。' * 40)]))])
+    assert response.status == 'partial'
+    assert 'answer_too_verbose' in response.status_reasons
+
+
+def test_unavailable_candidate_reasons_remain_in_model_evidence_catalog():
+    from app.agents.question_report import evidence_catalog
+    response, _, _ = execute([planning(), tool('candidate', 'evaluate_trade_plan', mode='candidate', symbol='QQQ'),
+        final(draft(ids=('candidate',), blocks=[block('结构仍需确认。', ids=('candidate',))]))])
+    catalog = evidence_catalog(response.report.evidence)
+    assert catalog[0]['plan_available'] is False
+    assert catalog[0]['references']['trade_plan.reasons']['value']
+    assert 'ma20' not in catalog[0]['references']
