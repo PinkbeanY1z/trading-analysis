@@ -7,7 +7,11 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode,tools_condition
 from langgraph.checkpoint.memory import InMemorySaver
 from .schemas import AgentSettings,ChatResponse,Report,Interpretation,ReportValidation
-from .tools import RUN,build_tools
+from .tools import RUN,build_tools,collect_evidence
+from .planning import planning_tool
+from .question_schema import QuestionAnswerDraft
+from .question_report import evidence_catalog,validate_answer,render_answer,fallback_blocks
+from .audit import evidence_digest
 from .llm import model
 from .report import sections,evidence_from,catalog,validate_interpretation
 
@@ -20,18 +24,29 @@ explanations建议最多两句，每句不超过八十个中文字符（含引�
 不得编造价格或读数。所有值只能逐字复制本轮目录reference_tokens中的完整占位符，且对应证据必须被引用；不要自行编造字段名。目录支持均线、RSI、ATR、斜率、偏离率、支撑阻力等真实字段。标签MA20、MA50、MA200、RSI14、ATR14可以直接写，其他读数、阈值和百分比不允许直接写成数字或中文数词。非数值解释用普通中文。不提供没有证据支持的结论。
 数据不足必须承认；模拟行情必须说明为模拟历史，不能声称当前真实市场。数值报告由服务器从工具证据构造。
 JSON Schema：'''+json.dumps(Interpretation.model_json_schema(),ensure_ascii=False)
+LEGACY_PROMPT=PROMPT
+PROMPT='''你是问题优先的金融研究助手，不下单。先理解本轮问题及子问题，再自主选择必要工具，不固定遍历全部工具。沿用会话品种，追问的周期为主周期；默认研究日线，黄金用XAU/USD与gold。
+每轮必须原生调用plan_research，列出用户实际问题、主周期与必要工具。可与首个专项工具同轮调用。计划不是行情证据。每个问题都要回答，不要增加无关任务。无需在每个工具前调用get_market_data；它只用于原始K线。calculate_technical_indicators只用于指定读数；结构问题通常仅analyze_market_structure即可；compare_timeframes已完成多周期研究，不再逐周期重复查询。禁止为展示调用轨迹而重复同样工作。
+买入时机、胜率、盈亏比分别作为entry/win_rate/risk_reward子问题。先用结构证据判断支持和反对；需要候选方案时自主调用evaluate_trade_plan(mode=candidate)，接受“无法形成合理方案”的结果，明确缺少的确认，不凑价位。滚动区间极值不是多次测试确认的强支撑；已跌破的低点不再是当前有效支撑。模型不能自行给出任何入场/止损/目标价，candidate只能由Python取实际结构锚点。
+用户明确给定价格时使用evaluate_trade_plan(mode=evaluate)，只复制本轮用户给定的入场/止损/目标数字及成本；纯算术无需行情，primary_timeframe为null。未提供的成本不传零、不编造。所有盈亏比与理论盈亏平衡门槛由Python计算，实际历史胜率一律未验证，禁止估计概率、宣称胜率较高或把理论门槛当实际胜率。ATR只用于检查正常波动风险，不机械选择止损。
+完成研究后只输出下方Schema的JSON，不加Markdown。默认回答合计约150至300个中文字，复杂问题按需增加。不要输出完整指标列表、固定章节或重复周期。answer_blocks逐个回答plan中的question_ids；第一块直接回答，随后仅关键依据、方案/限制和最多三个观察条件。只问观察信号时，只给最多三个watch块。技术依据可用detail=true折叠。facts通常留空，避免与行文重复。
+evidence_ids逐字复制本轮目录的evidence_id，不引用上一轮。主周期必须有本轮工具证据。所有数值（包括价格、阈值、盈亏比、百分比）只能使用本轮目录reference的完整token，如{{0.ma20}}；不要手写数字或中文数词，MA20/50/200、RSI14、前20根、4小时等规则标签除外。服务器会解析引用并统一格式化，模型不做计算。事实引用必须属于所在块evidence_ids。trade_plan_evidence_id只有实际存在calculation时才填写，否则null。
+entry_stance用not_supported/await_confirmation/conditional_hypothesis，不提供“已确认立即买入”；数据时段和入场触发未确认必须如实说明。针对胜率的问题有明确“实际历史胜率未验证”，针对无方案的盈亏比说明缺少的锚点、触发、成本条件。模型可解释和提出条件，但不得将未来观察条件表述为已发生事实。Mock明确为模拟历史，不能称当前真实市场。
+JSON Schema：'''+json.dumps(QuestionAnswerDraft.model_json_schema(),ensure_ascii=False)
+
 class State(TypedDict):
     messages: Annotated[list,add_messages]
     rounds: int
     error: str
     response: dict
+    research_plan: dict
 
 class Agent:
     def __init__(self,market,settings=None,llm=None):
         self.market=market; self.settings=settings or AgentSettings()
         self.llm=llm or model(self.settings)
         self.saver=InMemorySaver(); self.locks={}
-        tools=build_tools(); node=ToolNode(tools,handle_tool_errors=lambda e:'{"error":"工具参数或执行错误"}')
+        tools=[planning_tool(),*build_tools()]; node=ToolNode(tools,handle_tool_errors=lambda e:'{"error":"工具参数或执行错误"}')
         bound=self.llm.bind_tools(tools) if self.llm else None
         report_model=(self.llm.bind_report() if hasattr(self.llm,'bind_report') else
                       self.llm.bind(response_format={'type':'json_object'},max_tokens=2000) if hasattr(self.llm,'bind') else self.llm)
@@ -40,9 +55,10 @@ class Agent:
                 return {'error':'max_rounds'}
             try:
                 messages=[SystemMessage(content=PROMPT)]+state['messages']
-                evidence=evidence_from(RUN.get()['records'])
+                evidence=collect_evidence(RUN.get()['records'])
                 if evidence:
-                    messages.append(SystemMessage(content='本轮证据目录（仅引用这些ID与index）：'+json.dumps(catalog(evidence),ensure_ascii=False)))
+                    entries=evidence_catalog(evidence) if RUN.get().get('plan') else catalog(evidence)
+                    messages.append(SystemMessage(content='本轮证据目录（仅引用这些ID与index）：'+json.dumps(entries,ensure_ascii=False)))
                 answer=await asyncio.wait_for(bound.ainvoke(messages),self.settings.deepseek_timeout)
                 if len(answer.tool_calls)>8: return {'error':'too_many_tools'}
                 return {'messages':[answer],'rounds':state['rounds']+1}
@@ -63,9 +79,12 @@ class Agent:
                 except Exception:
                     payload={'error':'工具执行失败或超时'}; failed=True
                 record=dict(call_id=tc['id'],name=tc['name'],arguments=tc['args'],status='failed' if failed else 'success',result=payload)
+                if not failed:
+                    record['evidence_digests']=[dict(interval=d.get('interval'),snapshot_id=d.get('snapshot_id'),
+                        calculation_id=d.get('calculation_id'),digest=evidence_digest(d)) for d in collect_evidence([record])]
                 RUN.get()['records'].append(record)
                 output.append(ToolMessage(content=json.dumps(payload,ensure_ascii=False),tool_call_id=tc['id'],status='error' if failed else 'success'))
-            return {'messages':output}
+            return {'messages':output,'research_plan':RUN.get()['plan'].model_dump() if RUN.get().get('plan') else {}}
         def validate(state):
             return {'response':self.report(state).model_dump()}
         def after_validation(state):
@@ -78,15 +97,16 @@ class Agent:
             return 'repair' if can_repair else END
         async def repair(state):
             run=RUN.get(); run['report_retries']+=1
-            evidence=evidence_from(run['records'])
+            evidence=collect_evidence(run['records'])
             payload={'user_tasks':[m.content for m in state['messages'] if isinstance(m,HumanMessage)][-2:],
-                     'evidence_catalog':catalog(evidence),
-                     'evidence':[{k:v for k,v in d.items() if k not in {'ohlcv'}} for d in evidence],
+                     'research_plan':run['plan'].model_dump() if run.get('plan') else None,
+                     'evidence_catalog':evidence_catalog(evidence) if run.get('plan') else catalog(evidence),
+                     'tool_results':[r['result'] for r in run['records']],
                      'validation_issues':run['report_attempts'][-1].issues,
                      'explanation_checks':run['report_attempts'][-1].explanation_checks}
             try:
                 answer=await asyncio.wait_for(report_model.ainvoke([
-                    SystemMessage(content=PROMPT+'\n这是受限报告修复：只能使用给定证据，不能调用工具。依据校验错误重新生成JSON。'),
+                    SystemMessage(content=(PROMPT if state['response']['report']['protocol_version']==2 else LEGACY_PROMPT)+'\n这是受限报告修复：只能使用给定证据，不能调用工具。依据校验错误重新生成JSON。'),
                     HumanMessage(content=json.dumps(payload,ensure_ascii=False))]),self.settings.deepseek_timeout)
                 if answer.tool_calls: return {'error':'report_repair_requested_tools'}
                 return {'messages':[answer],'rounds':state['rounds']+1}
@@ -99,13 +119,17 @@ class Agent:
         self.graph=graph.compile(checkpointer=self.saver)
     def report(self,state):
         run=RUN.get(); records=run['records']; good=[r for r in records if r['status']=='success']
-        evidence=evidence_from(records)
+        try: evidence=collect_evidence(records)
+        except (ValueError,KeyError): evidence=[]; state={**state,'error':'evidence_snapshot_mismatch'}
         warnings=list(dict.fromkeys(w for d in evidence for w in d.get('warnings',[])))
-        interpretation=None; error=state.get('error',''); reasons=[]
+        interpretation=None; answer=None; error=state.get('error',''); reasons=[]
+        content=state['messages'][-1].content if state.get('messages') else ''
+        try: is_v2=self.settings.agent_report_protocol=='question_first' or bool(run.get('plan')) or isinstance(content,str) and json.loads(content).get('protocol_version')==2
+        except (ValueError,AttributeError): is_v2=self.settings.agent_report_protocol=='question_first' or bool(run.get('plan'))
         if not error:
-            content=state['messages'][-1].content if state.get('messages') else ''
             finish_reason=state['messages'][-1].response_metadata.get('finish_reason','unknown') if state.get('messages') else 'unknown'
-            interpretation,attempt=validate_interpretation(content,evidence,finish_reason)
+            if is_v2: answer,attempt=validate_answer(content,evidence,run.get('plan'),run['user_message'],finish_reason)
+            else: interpretation,attempt=validate_interpretation(content,evidence,finish_reason)
             run['report_attempts'].append(attempt)
             if not attempt.valid:
                 error='invalid_report'
@@ -113,25 +137,42 @@ class Agent:
         else: reasons.append(error)
         if not evidence: reasons.append('no_evidence')
         if len(good)!=len(records): reasons.append('tool_execution_failed')
-        insufficient=any(d.get('insufficient_history') or any(d['technical_indicators'].get(k) is None for k in ('ma20','ma50','ma200','rsi','atr')) for d in evidence)
+        market=[d for d in evidence if d.get('kind')!='calculation']
+        if is_v2:
+            kinds={q.kind for q in run['plan'].questions} if run.get('plan') else set()
+            insufficient=any((kinds & {'entry','trend','stabilization','timeframes','watch'} and
+                              any(d['technical_indicators'].get(key) is None for key in ('ma20','ma50','rsi'))) or
+                             ('levels' in kinds and any(d['support_resistance'].get(key) is None for key in ('support','resistance')))
+                             for d in market)
+            for record in good:
+                if record['name']=='calculate_technical_indicators':
+                    insufficient=insufficient or any(value is None for value in record['result']['technical_indicators'].values())
+        else:
+            insufficient=any(d.get('insufficient_history') or any(d['technical_indicators'].get(k) is None for k in ('ma20','ma50','ma200','rsi','atr')) for d in market)
         if insufficient: reasons.append('insufficient_history')
-        if len({(d['symbol'],d['asset_class'],d['source']) for d in evidence})>1:
-            reasons.append('inconsistent_evidence_identity'); interpretation=None
+        if len({(d['symbol'],d['asset_class'],d['source']) for d in market})>1:
+            reasons.append('inconsistent_evidence_identity'); interpretation=None; answer=None
         status=('failed' if not evidence else 'insufficient_data' if insufficient else
                 'partial' if reasons else 'success')
         if error: warnings.append(error)
-        if interpretation and run['report_retries']: warnings.append('report_repaired')
+        if (interpretation or answer) and run['report_retries']: warnings.append('report_repaired')
         if self.settings.agent_mode=='mock': warnings.append('Mock LLM：预设工具调用脚本，不代表模型自主理解已验证。')
-        symbols=list(dict.fromkeys(d['symbol'] for d in evidence))
-        assets=list(dict.fromkeys(d['asset_class'] for d in evidence))
-        primary=interpretation.primary_timeframe if interpretation else None
-        timeframes=list(dict.fromkeys(d['interval'] for d in evidence))
+        symbols=list(dict.fromkeys(d['symbol'] for d in market))
+        assets=list(dict.fromkeys(d['asset_class'] for d in market))
+        primary=answer.primary_timeframe if answer else interpretation.primary_timeframe if interpretation else None
+        timeframes=list(dict.fromkeys(d['interval'] for d in market))
         if primary: timeframes.sort(key=lambda interval:interval!=primary)
+        valid=answer is not None or interpretation is not None
+        blocks,trade_plan=render_answer(answer,evidence) if answer and status=='success' else (fallback_blocks(run.get('plan')) if is_v2 else [],None)
+        conclusion=(next((b.text for b in blocks if b.kind=='direct_answer'),blocks[0].text) if answer and status=='success' else
+                    interpretation.conclusion if interpretation and status=='success' else '证据不足或执行未完整完成，请查看状态和警告。')
         return ChatResponse(thread_id=run['thread'],symbol=symbols[0] if len(symbols)==1 else None,
             asset_class=assets[0] if len(assets)==1 else None,
             timeframes=timeframes,primary_timeframe=primary,status_reasons=list(dict.fromkeys(reasons)),
-            report=Report(sections=sections(evidence,interpretation),conclusion=interpretation.conclusion if status=='success' and interpretation else '证据不足或执行未完整完成，请查看状态和警告。',evidence=evidence,interpretation=interpretation,
-                          validation=ReportValidation(valid=interpretation is not None,attempts=run['report_attempts'],referenced_evidence_ids=interpretation.evidence_ids if interpretation else [])),
+            report=Report(protocol_version=2 if is_v2 else 1,answer_origin='model_validated' if answer and status=='success' else 'deterministic_fallback' if is_v2 else 'legacy',
+                          intent=run.get('plan'),answer_blocks=blocks,entry_stance=answer.entry_stance if answer and status=='success' else 'not_applicable',trade_plan=trade_plan,
+                          sections=[] if is_v2 else sections(evidence,interpretation),conclusion=conclusion,evidence=evidence,interpretation=interpretation,
+                          validation=ReportValidation(valid=valid,attempts=run['report_attempts'],referenced_evidence_ids=answer.evidence_ids if answer else interpretation.evidence_ids if interpretation else [])),
             tool_executions=records,data_sources=list(dict.fromkeys(d['source'] for d in evidence)),warnings=warnings,status=status,mode=self.settings.agent_mode)
     async def chat(self,request):
         thread=request.thread_id or uuid4().hex
@@ -140,7 +181,7 @@ class Agent:
             raise MarketError('session_limit','开发环境最多100个会话，请重启服务释放',503)
         lock=self.locks.setdefault(thread,asyncio.Lock())
         async with lock:
-            run={'thread':thread,'records':[],'cache':{},'lock':asyncio.Lock(),'market':self.market,'report_attempts':[],'report_retries':0}
+            run={'thread':thread,'records':[],'cache':{},'lock':asyncio.Lock(),'market':self.market,'report_attempts':[],'report_retries':0,'plan':None,'user_message':request.message}
             token=RUN.set(run)
             try:
                 if not self.llm: return self.report({'error':'missing_deepseek_key'})

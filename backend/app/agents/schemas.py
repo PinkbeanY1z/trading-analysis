@@ -2,6 +2,7 @@ from typing import Literal, Annotated
 from pydantic import BaseModel, Field, ConfigDict
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
+from .question_schema import ResearchPlan, AnswerBlock
 
 class AgentSettings(BaseSettings):
     model_config=SettingsConfigDict(env_file=Path(__file__).resolve().parents[2]/'.env',extra='ignore')
@@ -14,6 +15,7 @@ class AgentSettings(BaseSettings):
     agent_tool_timeout: float=Field(30,gt=0)
     agent_max_rounds: int=Field(6,ge=1,le=20)
     agent_report_retries: int=Field(1,ge=0,le=2)
+    agent_report_protocol: Literal['question_first','legacy_compatible']='question_first'
 
 class ChatRequest(BaseModel):
     message: str=Field(min_length=1,max_length=4000)
@@ -53,8 +55,15 @@ class Execution(BaseModel):
     arguments: dict
     status: Literal['success','failed']
     result: dict
+    evidence_digests: list[dict]=Field(default_factory=list)
 
 class Report(BaseModel):
+    protocol_version: Literal[1,2]=1
+    answer_origin: Literal['legacy','model_validated','deterministic_fallback']='legacy'
+    intent: ResearchPlan | None=None
+    answer_blocks: list[AnswerBlock]=Field(default_factory=list)
+    entry_stance: Literal['not_supported','await_confirmation','conditional_hypothesis','not_applicable']='not_applicable'
+    trade_plan: dict | None=None
     sections: list[dict]=Field(default_factory=list)
     conclusion: str
     evidence: list[dict]

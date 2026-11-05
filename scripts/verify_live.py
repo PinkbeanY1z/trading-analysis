@@ -22,6 +22,7 @@ from app.market import MarketService
 from app.agents.schemas import AgentSettings, ChatRequest
 from app.agents.graph import Agent
 from app.agents.llm import model
+from app.agents.audit import evidence_digest
 
 TASKS = (
     ('A', '分析 QQQ 日线趋势和 MA20、MA50、MA200。', 'QQQ', {'1day'}),
@@ -33,6 +34,7 @@ TASKS = (
 KNOWN_TOOLS = {
     'get_market_data', 'calculate_technical_indicators',
     'analyze_market_structure', 'compare_timeframes',
+    'plan_research', 'evaluate_trade_plan',
 }
 
 
@@ -191,10 +193,11 @@ def check_task(response, symbol, intervals, source, events, primary=None, backgr
     evidence = response.report.evidence
     validation=getattr(response.report,'validation',None)
     interpretation=getattr(response.report,'interpretation',None)
-    if not validation or not validation.valid or not interpretation:
+    is_v2=getattr(response.report,'protocol_version',1)==2
+    if not validation or not validation.valid or (not interpretation and not is_v2):
         failures.append('report_validation_failed')
-    elif interpretation.primary_timeframe!=actual_primary or not any(
-            e.get('interval')==actual_primary and e.get('call_id') in interpretation.evidence_ids for e in evidence):
+    elif (not is_v2 and interpretation.primary_timeframe!=actual_primary) or not any(
+            e.get('interval')==actual_primary and e.get('call_id') in validation.referenced_evidence_ids for e in evidence):
         failures.append('primary_evidence_not_cited')
     if not evidence:
         failures.append('missing_evidence')
@@ -204,8 +207,9 @@ def check_task(response, symbol, intervals, source, events, primary=None, backgr
         execution = next((t for t in executions if t.call_id == item.get('call_id')), None)
         origins = execution.result.get('timeframes', [execution.result]) if execution else []
         origin = next((d for d in origins if d.get('symbol') == symbol and d.get('interval') == item.get('interval')), None)
-        if origin is None or any(item.get(k)!=origin.get(k) for k in
-                                 ('technical_indicators','support_resistance','market_structure','snapshot_id','last_updated','asset_class')):
+        fingerprints=getattr(execution,'evidence_digests',[]) if execution else []
+        if origin is None or any(item.get(k)!=origin.get(k) for k in ('snapshot_id','last_updated','asset_class','source')) or not any(
+                check.get('interval')==item.get('interval') and check.get('digest')==evidence_digest(item) for check in fingerprints):
             failures.append('numeric_evidence_mismatch')
         if item.get('technical_indicators', {}).get('rsi') is None:
             failures.append('missing_rsi')

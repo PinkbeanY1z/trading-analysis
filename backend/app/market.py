@@ -14,6 +14,10 @@ class MarketService:
         self.provider,self.ttl=provider,ttl
         self.cache={}
         self.lock=asyncio.Lock()
+        # Raw candles and computed responses have different dependencies. An
+        # intraday response also depends on the daily snapshot used for PDH/PDL.
+        self.derived_cache={}
+        self.derived_lock=asyncio.Lock()
     async def candles(self,q):
         key=(q.symbol,q.asset,q.interval)
         # Single lock also coalesces concurrent requests; bounded cache avoids unbounded symbols.
@@ -29,19 +33,42 @@ class MarketService:
         rows,fetched=await self.candles(q)
         if not rows:
             raise MarketError('empty_data','没有可用行情',404)
+        daily,daily_fetched=rows,fetched
+        daily_failed=False
+        if q.interval!='1day':
+            try: daily,daily_fetched=await self.candles(MarketQuery(symbol=q.symbol,asset=q.asset,interval='1day'))
+            except Exception as exc:
+                if not isinstance(exc,MarketError): raise
+                daily=[]; daily_fetched=None; daily_failed=True
+        stale=(datetime.now(timezone.utc)-datetime.fromisoformat(rows[-1]['t'])).total_seconds()>4*86400
+        # Include both identity and content: clearing/refreshing the source cache
+        # or a provider revision at the same timestamp must invalidate derived
+        # values. This fingerprint concerns public market rows, never credentials.
+        fingerprint=lambda value: hashlib.sha256(json.dumps(value,sort_keys=True,separators=(',',':'),allow_nan=False).encode()).hexdigest()
+        raw_fingerprint=fingerprint(rows)
+        daily_fingerprint=raw_fingerprint if daily is rows else fingerprint(daily)
+        key=(q.symbol,q.asset,q.interval,self.provider.name,fetched,raw_fingerprint,
+             daily_fetched,daily_fingerprint,stale)
+        cacheable=self.ttl>0 and not daily_failed
+        async with self.derived_lock:
+            if cacheable and key in self.derived_cache:
+                return deepcopy(self.derived_cache[key])
+            result=self._derive(q,rows,fetched,daily,daily_failed,stale)
+            if cacheable:
+                if len(self.derived_cache)>=128: self.derived_cache.pop(next(iter(self.derived_cache)))
+                self.derived_cache[key]=result
+            return deepcopy(result)
+
+    def _derive(self,q,rows,fetched,daily,daily_failed,stale):
+        """The existing deterministic response calculation, without I/O."""
         indicators=calculate(rows,q.asset)
         warnings=['最新K线可能尚未完成；信号包含该K线。']
         if self.provider.name=='mock': warnings.append('模拟历史数据，不是真实行情；未模拟交易所节假日。')
         if indicators['insufficient_history']: warnings.append('历史不足，MA200不可用。')
         if q.asset=='gold': warnings.append('黄金成交量不可用，不进行量能确认。')
-        if (datetime.now(timezone.utc)-datetime.fromisoformat(rows[-1]['t'])).total_seconds()>4*86400:
+        if stale:
             warnings.append('最新数据距今超过四天，请核对休市或数据延迟。')
-        daily=rows
-        if q.interval!='1day':
-            try: daily,_=await self.candles(MarketQuery(symbol=q.symbol,asset=q.asset,interval='1day'))
-            except Exception as exc:
-                if not isinstance(exc,MarketError): raise
-                daily=[]; warnings.append('日线不可用，PDH/PDL不可用。')
+        if daily_failed: warnings.append('日线不可用，PDH/PDL不可用。')
         zone=ZoneInfo('America/New_York') if q.asset=='stock' else timezone.utc
         target=datetime.fromisoformat(rows[-1]['t']).astimezone(zone).date()
         previous=[r for r in daily if datetime.fromisoformat(r['t']).astimezone(zone).date()<target]

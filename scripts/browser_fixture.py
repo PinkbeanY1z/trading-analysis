@@ -97,7 +97,7 @@ def create_fixture_app():
     app = create_app(
         settings=Settings(market_provider="mock", twelvedata_api_key="", cache_ttl=60),
         provider=FixtureProvider(),
-        agent_settings=AgentSettings(agent_mode="mock", deepseek_api_key=""),
+        agent_settings=AgentSettings(agent_report_protocol='legacy_compatible',agent_mode="mock", deepseek_api_key=""),
         llm=llm,
     )
     app.title = "Trading-Analysis deterministic browser acceptance fixture"

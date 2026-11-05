@@ -45,13 +45,13 @@ def test_model_error_category(status, category):
 
 
 def test_missing_keys_skip_without_network():
-    result = asyncio.run(live.verify(Settings(_env_file=None,twelvedata_api_key=''), AgentSettings(_env_file=None,agent_mode='deepseek',deepseek_api_key='')))
+    result = asyncio.run(live.verify(Settings(_env_file=None,twelvedata_api_key=''), AgentSettings(agent_report_protocol='legacy_compatible',_env_file=None,agent_mode='deepseek',deepseek_api_key='')))
     assert result['twelve_data'] == result['deepseek_function_calling'] == result['multi_turn_natural_language'] == 'SKIPPED'
     assert not result['market_cases'] and not result['agent_cases']
 
 
 def test_real_model_not_silently_given_mock_market():
-    result = asyncio.run(live.verify(Settings(_env_file=None,twelvedata_api_key=''), AgentSettings(_env_file=None,agent_mode='deepseek',deepseek_api_key='test-only')))
+    result = asyncio.run(live.verify(Settings(_env_file=None,twelvedata_api_key=''), AgentSettings(agent_report_protocol='legacy_compatible',_env_file=None,agent_mode='deepseek',deepseek_api_key='test-only')))
     assert result['deepseek_function_calling'] == 'SKIPPED'
     assert result['market_source_for_agent'] == 'twelve_data'
     assert not result['agent_cases']
@@ -71,7 +71,7 @@ def plan():
 
 def test_explicit_mock_market_real_protocol_path_with_test_double():
     observed = live.ObservedLLM(ScriptedLLM(plan()))
-    result = asyncio.run(live.verify(Settings(_env_file=None,twelvedata_api_key=''), AgentSettings(_env_file=None,agent_mode='deepseek',deepseek_api_key='test-only'), market_source='mock', observed=observed))
+    result = asyncio.run(live.verify(Settings(_env_file=None,twelvedata_api_key=''), AgentSettings(agent_report_protocol='legacy_compatible',_env_file=None,agent_mode='deepseek',deepseek_api_key='test-only'), market_source='mock', observed=observed))
     # Only tests the verifier; this assertion is not a real-model acceptance claim.
     assert result['deepseek_function_calling'] == result['multi_turn_natural_language'] == 'PASSED'
     assert result['twelve_data'] == 'NOT_RUN'
@@ -94,7 +94,7 @@ def test_native_model_exception_diagnostic_is_sanitized():
             failure.status_code = 401
             raise failure
     observed = live.ObservedLLM(Bad())
-    result = asyncio.run(live.verify(Settings(_env_file=None,twelvedata_api_key=''), AgentSettings(_env_file=None,agent_mode='deepseek',deepseek_api_key='test-only'), market_source='mock', observed=observed))
+    result = asyncio.run(live.verify(Settings(_env_file=None,twelvedata_api_key=''), AgentSettings(agent_report_protocol='legacy_compatible',_env_file=None,agent_mode='deepseek',deepseek_api_key='test-only'), market_source='mock', observed=observed))
     assert result['deepseek_function_calling'] == result['multi_turn_natural_language'] == 'FAILED'
     assert result['agent_cases'][0]['model_errors'] == ['authentication']
     assert result['agent_cases'][0]['model_error_details'] == [{'category':'authentication','http_status':401}]
@@ -128,7 +128,7 @@ def test_minimal_auth_probe_has_one_request_and_no_secret_output(status, categor
         return httpx.Response(status, json={'error':{'message':'upstream-secret-do-not-output'}})
     async def run():
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-        return await live.probe_deepseek(AgentSettings(_env_file=None, deepseek_api_key='test-only-key'), client)
+        return await live.probe_deepseek(AgentSettings(agent_report_protocol='legacy_compatible',_env_file=None, deepseek_api_key='test-only-key'), client)
     result = asyncio.run(run())
     assert len(requests) == 1
     assert result['http_status'] == status
@@ -142,7 +142,7 @@ def test_minimal_probe_distinguishes_network_failure():
         raise httpx.ConnectError('secret-upstream-url', request=request)
     async def run():
         client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-        return await live.probe_deepseek(AgentSettings(_env_file=None, deepseek_api_key='test-only-key'), client)
+        return await live.probe_deepseek(AgentSettings(agent_report_protocol='legacy_compatible',_env_file=None, deepseek_api_key='test-only-key'), client)
     result = asyncio.run(run())
     assert result['error'] == 'network' and result['http_status'] is None
     assert 'secret' not in json.dumps(result)
@@ -155,7 +155,7 @@ def test_mock_market_never_runs_real_matrix_even_with_configured_market_key(monk
     observed = live.ObservedLLM(ScriptedLLM(plan()[:4]))
     result = asyncio.run(live.verify(
         Settings(_env_file=None,twelvedata_api_key='test-only-market-key'),
-        AgentSettings(_env_file=None,agent_mode='deepseek',deepseek_api_key='test-only-model-key'),
+        AgentSettings(agent_report_protocol='legacy_compatible',_env_file=None,agent_mode='deepseek',deepseek_api_key='test-only-model-key'),
         market_source='mock', observed=observed, tasks=live.TASKS[:2]))
     assert result['twelve_data'] == 'NOT_RUN' and not result['market_cases']
     assert result['requested_tasks'] == ['A','D']
@@ -172,7 +172,7 @@ def test_skipping_matrix_only_fetches_data_requested_by_real_market_agent(monkey
     observed = live.ObservedLLM(ScriptedLLM(plan()[:2]))
     result = asyncio.run(live.verify(
         Settings(_env_file=None,twelvedata_api_key='test-only-market-key'),
-        AgentSettings(_env_file=None,agent_mode='deepseek',deepseek_api_key='test-only-model-key'),
+        AgentSettings(agent_report_protocol='legacy_compatible',_env_file=None,agent_mode='deepseek',deepseek_api_key='test-only-model-key'),
         observed=observed, run_market_checks=False, tasks=live.TASKS[:1]))
     assert queries == [('QQQ','1day')]
     assert result['twelve_data'] == result['multi_turn_natural_language'] == 'NOT_RUN'
@@ -198,7 +198,7 @@ def test_followup_target_allows_daily_context_but_requires_four_hour_focus(frame
             AIMessage(content='',tool_calls=[dict(id='compare',name='compare_timeframes',args={'symbol':'QQQ','intervals':frames})]),
             AIMessage(content=json.dumps({'evidence_ids':['compare'],'primary_timeframe':primary,'conclusion':'需要更多证据'})),
         ]))
-        agent=live.Agent(MarketService(MockProvider()),AgentSettings(_env_file=None,agent_mode='deepseek',deepseek_api_key='test-only'),observed)
+        agent=live.Agent(MarketService(MockProvider()),AgentSettings(agent_report_protocol='legacy_compatible',_env_file=None,agent_mode='deepseek',deepseek_api_key='test-only'),observed)
         response=await agent.chat(live.ChatRequest(message='那它的4小时呢？'))
         assert response.status=='success' and response.timeframes[0]==primary
         return live.check_task(response,'QQQ',{'4h'},'mock',observed.events,primary='4h',background=('1day',))
@@ -209,7 +209,7 @@ def test_followup_target_allows_daily_context_but_requires_four_hour_focus(frame
 def test_verifier_rejects_changed_report_numbers_against_execution_snapshot():
     async def run():
         observed=live.ObservedLLM(ScriptedLLM(plan()[:2]))
-        agent=live.Agent(MarketService(MockProvider()),AgentSettings(_env_file=None,agent_mode='deepseek',deepseek_api_key='test-only'),observed)
+        agent=live.Agent(MarketService(MockProvider()),AgentSettings(agent_report_protocol='legacy_compatible',_env_file=None,agent_mode='deepseek',deepseek_api_key='test-only'),observed)
         response=await agent.chat(live.ChatRequest(message='分析QQQ日线'))
         assert live.check_task(response,'QQQ',{'1day'},'mock',observed.events,primary='1day')==[]
         response.report.evidence[0]['technical_indicators']['rsi']=12345

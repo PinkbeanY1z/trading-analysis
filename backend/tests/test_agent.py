@@ -17,7 +17,7 @@ def final(*ids,primary='1day'):
 def run(plan,message='分析 QQQ 的日线趋势和 RSI14。',provider=None,**settings):
     async def execute():
         model=ScriptedLLM(plan)
-        agent=Agent(MarketService(provider or MockProvider()),AgentSettings(agent_mode='mock',**settings),model)
+        agent=Agent(MarketService(provider or MockProvider()),AgentSettings(agent_report_protocol='legacy_compatible',agent_mode='mock',**settings),model)
         return await agent.chat(ChatRequest(message=message))
     return asyncio.run(execute())
 
@@ -34,13 +34,19 @@ def test_scenarios(message,plan):
     for evidence in response.report.evidence:
         original=next(r for r in response.tool_executions if r.call_id==evidence['call_id'])
         source=next((x for x in original.result.get('timeframes',[]) if x['interval']==evidence['interval']),original.result)
-        assert evidence['technical_indicators']==source['technical_indicators']
+        # Tool payloads are now distinct projections. Canonical audit values are
+        # bound to the executed snapshot, rather than repeated in every tool.
+        assert evidence['snapshot_id']==source['snapshot_id']
+        from app.agents.audit import evidence_digest
+        assert any(d['digest']==evidence_digest(evidence) for d in original.evidence_digests)
+        for key,value in source.get('technical_indicators',{}).items():
+            assert evidence['technical_indicators'][key]==value
         if evidence['symbol']=='XAU/USD': assert evidence['technical_indicators']['relativeVolume'] is None
 
 def test_context():
     async def execute():
         model=ScriptedLLM([call(),final('a'),call(id='b',interval='4h'),final('b',primary='4h')])
-        agent=Agent(MarketService(MockProvider()),AgentSettings(agent_mode='mock'),model)
+        agent=Agent(MarketService(MockProvider()),AgentSettings(agent_report_protocol='legacy_compatible',agent_mode='mock'),model)
         first=await agent.chat(ChatRequest(message='分析 QQQ 的日线'))
         second=await agent.chat(ChatRequest(message='它的4小时呢？',thread_id=first.thread_id))
         assert second.timeframes==['4h'] and second.symbol=='QQQ'
@@ -84,14 +90,14 @@ def test_same_round_multiple_calls():
     assert [r.call_id for r in response.tool_executions]==['a','b']
 
 def test_api():
-    with TestClient(create_app(Settings(market_provider='mock'),agent_settings=AgentSettings(agent_mode='mock'))) as c:
+    with TestClient(create_app(Settings(market_provider='mock'),agent_settings=AgentSettings(agent_report_protocol='legacy_compatible',agent_mode='mock'))) as c:
         response=c.post('/api/agent/chat',json={'message':'分析 QQQ 的日线'})
         assert response.status_code==200
         assert response.json()['status']=='success'
         assert c.post('/api/agent/chat',json={'message':''}).status_code==422
 
 def test_missing_key():
-    with TestClient(create_app(Settings(market_provider='mock'),agent_settings=AgentSettings(agent_mode='deepseek',deepseek_api_key=''))) as c:
+    with TestClient(create_app(Settings(market_provider='mock'),agent_settings=AgentSettings(agent_report_protocol='legacy_compatible',agent_mode='deepseek',deepseek_api_key=''))) as c:
         response=c.post('/api/agent/chat',json={'message':'分析 QQQ'})
         assert response.json()['status']=='failed'
         assert 'missing_deepseek_key' in response.json()['warnings']
@@ -105,7 +111,7 @@ def test_per_request_computation_cache():
     async def execute():
         market=Counting(MockProvider())
         model=ScriptedLLM([call('get_market_data'),call('calculate_technical_indicators',id='b'),call(id='c'),final('a','b','c')])
-        agent=Agent(market,AgentSettings(agent_mode='mock'),model)
+        agent=Agent(market,AgentSettings(agent_report_protocol='legacy_compatible',agent_mode='mock'),model)
         result=await agent.chat(ChatRequest(message='分析QQQ'))
         assert result.status=='success' and market.calls==1
         evidence=result.report.evidence[0]
@@ -123,7 +129,7 @@ def test_model_failure():
     class Broken(ScriptedLLM):
         async def ainvoke(self,m): raise RuntimeError('secret-provider-message')
     async def execute():
-        agent=Agent(MarketService(MockProvider()),AgentSettings(agent_mode='mock'),Broken())
+        agent=Agent(MarketService(MockProvider()),AgentSettings(agent_report_protocol='legacy_compatible',agent_mode='mock'),Broken())
         result=await agent.chat(ChatRequest(message='test'))
         assert result.status=='failed'
         assert 'secret' not in result.model_dump_json()
@@ -135,7 +141,7 @@ def test_entire_task_timeout():
             await asyncio.sleep(.1)
             return final('a')
     async def execute():
-        agent=Agent(MarketService(MockProvider()),AgentSettings(agent_mode='mock',agent_timeout=.01),Slow())
+        agent=Agent(MarketService(MockProvider()),AgentSettings(agent_report_protocol='legacy_compatible',agent_mode='mock',agent_timeout=.01),Slow())
         result=await agent.chat(ChatRequest(message='test'))
         assert result.status=='failed'
         assert 'agent_timeout_or_failure' in result.warnings

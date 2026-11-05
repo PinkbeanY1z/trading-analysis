@@ -22,7 +22,7 @@ def final(ids=('a',), primary='1day', **changes):
 def execute(plan, provider=None, **config):
     async def run():
         llm=ScriptedLLM(plan)
-        agent=Agent(MarketService(provider or MockProvider()),AgentSettings(_env_file=None,agent_mode='mock',**config),llm)
+        agent=Agent(MarketService(provider or MockProvider()),AgentSettings(agent_report_protocol='legacy_compatible',_env_file=None,agent_mode='mock',**config),llm)
         response=await agent.chat(ChatRequest(message='请分析指定品种的走势'))
         return response,llm
     return asyncio.run(run())
@@ -114,7 +114,7 @@ def test_tool_failure_is_distinct_from_report_failure():
 def test_previous_turn_citations_are_not_current_evidence():
     async def run():
         llm=ScriptedLLM([call(),final(),call('b','4h'),final(primary='4h')])
-        agent=Agent(MarketService(MockProvider()),AgentSettings(_env_file=None,agent_mode='mock',agent_report_retries=0),llm)
+        agent=Agent(MarketService(MockProvider()),AgentSettings(agent_report_protocol='legacy_compatible',_env_file=None,agent_mode='mock',agent_report_retries=0),llm)
         a=await agent.chat(ChatRequest(message='分析日线'))
         d=await agent.chat(ChatRequest(message='它的4小时呢？',thread_id=a.thread_id))
         assert a.status=='success' and d.status=='partial'
