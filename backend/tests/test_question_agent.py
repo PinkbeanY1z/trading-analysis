@@ -498,3 +498,39 @@ def test_unavailable_candidate_reasons_remain_in_model_evidence_catalog():
     assert catalog[0]['plan_available'] is False
     assert catalog[0]['references']['trade_plan.reasons']['value']
     assert 'ma20' not in catalog[0]['references']
+
+
+def test_negated_probability_estimate_does_not_match_across_punctuation():
+    response, _, _ = execute([planning(), tool('structure'), final(draft([block('工具未返回任何胜率数据，我不估计概率。')]))])
+    assert response.status == 'success', response.status_reasons
+
+
+def test_supplementary_evidence_is_collapsed_without_hiding_direct_answer():
+    response, _, _ = execute([planning(), tool('structure'), final(draft([
+        block('当前结构仍需确认。'), block('补充结构依据。', kind='key_evidence')]))])
+    assert response.status == 'success'
+    assert not response.report.answer_blocks[0].detail
+    assert response.report.answer_blocks[1].detail
+
+
+def test_report_repair_receives_current_task_not_previous_unrelated_questions():
+    async def run():
+        invalid = calculation_draft()
+        invalid['answer_blocks'][0]['text'] = '盈亏比999。'
+        llm = ScriptedLLM([planning(),tool('structure'),final(draft()),
+            planning(('risk_reward',),primary=None),
+            tool('calculation','evaluate_trade_plan',mode='evaluate',entry=690,stop=680,target=720),
+            final(invalid),final(calculation_draft())])
+        agent = Agent(CountingMarket(),settings(agent_report_retries=1),llm)
+        first = await agent.chat(ChatRequest(message='分析QQQ日线走势'))
+        second = await agent.chat(ChatRequest(message=CALC_QUESTION,thread_id=first.thread_id))
+        assert second.status == 'success'
+        payload = json.loads(llm.seen[-1][-1].content)
+        assert payload['user_tasks'] == [CALC_QUESTION]
+    asyncio.run(run())
+
+
+def test_report_presentation_translates_category_and_preserves_integer_counts():
+    from app.agents.question_report import render_text, display_value
+    assert render_text('趋势flat，均线mixed。',[]) == '趋势走平，均线混合排列。'
+    assert display_value(20,'analysis.rolling_levels.lookback') == '20'

@@ -47,6 +47,7 @@ def display_value(value, key=''):
     if value is None: return '不可用'
     if isinstance(value,(int,float)):
         if not math.isfinite(value): return '不可用'
+        if key.split('.')[-1] == 'lookback': return str(int(value))
         if key.split('.')[-1] == 'volume':
             for unit, scale in [('亿',1e8),('百万',1e6),('万',1e4)]:
                 if abs(value)>=scale: return f'{value/scale:,.2f}'+unit
@@ -55,14 +56,15 @@ def display_value(value, key=''):
             'above':'上方','below':'下方','at':'附近','broken':'已跌破','crossed':'已越过',
             'potential':'潜在参考，尚未确认','unconfirmed':'未确认','unverified':'未验证',
             'not_supported':'当前结构不支持','oversold':'超卖区','overbought':'超买区','neutral':'中性区',
-            'up':'上行','down':'下行','flat':'走平','user_assumption':'用户假设',
+            'increasing':'增加','decreasing':'减少','stable':'稳定','up':'上行','down':'下行','flat':'走平','user_assumption':'用户假设',
             'theoretical_required_rate':'理论盈亏平衡门槛','evaluated':'已测算',
             'structural_hypothesis':'结构假设','unavailable':'不可用','long':'多头','short':'空头'}
     return labels.get(value, value if not re.search(r'[a-z]+_[a-z]+',value) else '详见技术详情')
 
 
 def render_text(text, evidence):
-    return re.sub(REF, lambda match: display_value(values_for(evidence[int(match[1])])[match[2]],match[2]), text)
+    rendered = re.sub(REF, lambda match: display_value(values_for(evidence[int(match[1])])[match[2]],match[2]), text)
+    return re.sub(r'(?<![A-Za-z_])(?:flat|bullish|bearish|mixed|unconfirmed|not_supported|increasing|decreasing|stable)(?![A-Za-z_])', lambda m: display_value(m[0]), rendered)
 
 
 def required_kinds(message):
@@ -113,6 +115,7 @@ def validate_answer(content, evidence, plan, message, finish_reason='unknown'):
     if not required_kinds(message)<=kinds: issue('missing_user_subquestion')
     covered=set(); visible=[]; watch_count=0
     for index,block in enumerate(answer.answer_blocks):
+        if block.kind == 'key_evidence': block.detail = True
         if not block.detail: covered.update(block.question_ids)
         if not set(block.question_ids)<=question_ids: issue('unknown_question_id',('answer_blocks',index))
         if not set(block.evidence_ids)<=set(answer.evidence_ids): issue('uncited_block_evidence',('answer_blocks',index))
@@ -137,7 +140,7 @@ def validate_answer(content, evidence, plan, message, finish_reason='unknown'):
                 elif evidence[position]['call_id'] not in block.evidence_ids: issue('uncited_numeric_reference',('answer_blocks',index))
                 elif 'breakeven_win_rate' in key and '盈亏平衡' not in block.text+block.title:
                     issue('theoretical_rate_mislabeled',('answer_blocks',index))
-            for claim in re.finditer(r'胜率.{0,5}(很高|较高|可达|预计|估计)|保证获利|稳赚|已经确认企稳|多次测试确认的强',text):
+            for claim in re.finditer(r'胜率(?:为|是|可能)?(?:很高|较高|可达|预计|估计)|保证获利|稳赚|已经确认企稳|多次测试确认的强',text):
                 prefix = re.split(r'[。；;，,\n]', text[:claim.start()])[-1]
                 # Explicitly rejecting an unsupported claim is not asserting it.
                 if not re.search(r'不能|不得|不应|不可|不代表|不等于|并非|不是|尚未|避免|无法|没有证据|非$', prefix[-25:]):

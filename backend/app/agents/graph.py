@@ -55,6 +55,7 @@ class Agent:
                 return {'error':'max_rounds'}
             try:
                 messages=[SystemMessage(content=PROMPT)]+state['messages']
+                messages.append(SystemMessage(content='本轮唯一待回答任务：'+RUN.get()['user_message']+'。历史消息仅用于解析品种、周期和代词，不要重新回答或强调未评估的历史问题。研究计划仅覆盖本轮子问题。'))
                 evidence=collect_evidence(RUN.get()['records'])
                 if evidence:
                     entries=evidence_catalog(evidence) if RUN.get().get('plan') else catalog(evidence)
@@ -98,7 +99,7 @@ class Agent:
         async def repair(state):
             run=RUN.get(); run['report_retries']+=1
             evidence=collect_evidence(run['records'])
-            payload={'user_tasks':[m.content for m in state['messages'] if isinstance(m,HumanMessage)][-2:],
+            payload={'user_tasks':[run['user_message']],
                      'research_plan':run['plan'].model_dump() if run.get('plan') else None,
                      'evidence_catalog':evidence_catalog(evidence) if run.get('plan') else catalog(evidence),
                      'tool_results':[r['result'] for r in run['records']],
