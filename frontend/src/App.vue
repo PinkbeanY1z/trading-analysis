@@ -32,7 +32,7 @@
               <p v-if="currentChart.indicators.insufficient_history" role="status" class="notice">历史不足，长期均线不可用，结构尚未确认。</p>
               <KlineChart v-bind="chartProps(currentChart)" />
             </article>
-            <div class="market-metrics"><span>滚动区间低点 <b>{{ displayNumber(currentChart.rules.support) }}</b></span><span>滚动区间高点 <b>{{ displayNumber(currentChart.rules.resistance) }}</b></span><span>最新 RSI14 <b>{{ displayNumber(currentChart.indicators.latest.rsi) }}</b></span><span>{{ currentChart.assetClass === 'gold' || !currentChart.indicators.latest.volumeAvailable ? '成交量不可用' : '最新成交量 ' + displayNumber(currentChart.indicators.latest.volume, 0) }}</span></div>
+            <div class="market-metrics"><span>滚动区间低点 <b>{{ displayNumber(currentChart.rules.support) }}</b></span><span>滚动区间高点 <b>{{ displayNumber(currentChart.rules.resistance) }}</b></span><span>最新 RSI14 <b>{{ displayNumber(currentChart.indicators.latest.rsi) }}</b></span><span>{{ currentChart.assetClass === 'gold' || !currentChart.indicators.latest.volumeAvailable ? '成交量不可用' : '最新成交量 ' + displayVolume(currentChart.indicators.latest.volume) }}</span></div>
             <p v-if="chartWarnings.includes(snapshotWarning)" role="alert" class="notice">{{ snapshotWarning }}</p>
             <p class="quality-caption">最新K线完成状态未确认 · 上涨绿 / 下跌红</p>
             <details v-if="comparisonCharts.length" class="comparison-group"><summary>查看比较图 <span>{{ comparisonCharts.map(d => timeframeLabel(d.interval)).join(' / ') }}</span></summary><article v-for="d in comparisonCharts" :key="d.symbol + d.interval" class="chart-area comparison-chart" :data-testid="'chart-' + d.interval"><div class="chart-caption"><strong>{{ d.symbol }} · {{ timeframeLabel(d.interval) }} · 比较图</strong><time :datetime="d.last_updated">{{ displayTime(d.last_updated) }}</time></div><KlineChart v-bind="chartProps(d)" /></article></details>
@@ -42,18 +42,18 @@
         </div>
       </template>
       <template #assistant>
-        <header class="assistant-heading"><div><span class="assistant-glyph" aria-hidden="true">✧</span><h2>研究助手</h2><span class="quiet-badge">AI</span></div><button class="text-button" @click="newConversation" :disabled="busy">＋ 新会话</button></header>
+        <header class="assistant-heading"><div><span class="assistant-glyph" aria-hidden="true">✧</span><h2>研究助手</h2><span class="quiet-badge">AI</span></div><div class="assistant-actions"><button class="text-button" :aria-expanded="calculatorOpen" aria-controls="risk-workbench" @click="toggleCalculator">盈亏比</button><button class="text-button" @click="newConversation" :disabled="busy">＋ 新会话</button></div></header>
         <div ref="messageList" class="messages" role="region" aria-label="对话消息" tabindex="0" @scroll="onMessageScroll">
-          <div v-if="!messages.length" class="chat-welcome"><span class="eyebrow">从一个问题开始</span><h2>看清结构，再做判断。</h2><p>围绕趋势、关键价位或周期差异提问。分析依据可展开查看。</p><div class="suggestions"><button v-for="prompt in suggestions" :key="prompt" @click="usePrompt(prompt)">{{ prompt }}<span aria-hidden="true">↗</span></button></div><p class="welcome-note">行情可能延迟，最新K线完成状态尚未确认。研究结果不构成交易执行指令。</p></div>
+          <div ref="calculatorEl" v-show="calculatorOpen" id="risk-workbench"><RiskRewardCalculator :api-base="base" :initial-plan="calculatorPlan" /></div>
+          <div v-if="!messages.length && !calculatorOpen" class="chat-welcome"><span class="eyebrow">从一个问题开始</span><h2>看清结构，再做判断。</h2><p>围绕趋势、关键价位或周期差异提问。分析依据可展开查看。</p><div class="suggestions"><button v-for="prompt in suggestions" :key="prompt" @click="usePrompt(prompt)">{{ prompt }}<span aria-hidden="true">↗</span></button></div><p class="welcome-note">行情可能延迟，最新K线完成状态尚未确认。研究结果不构成交易执行指令。</p></div>
           <article v-for="(m, i) in messages" :key="i" class="chat-turn" data-testid="chat-message">
             <div class="user-message"><span class="message-role">你</span><p>{{ m.user }}</p></div>
             <p v-if="m.error" role="alert" class="notice error">{{ m.error }}</p>
             <div v-if="m.result" class="assistant-message">
               <div class="answer-meta"><span class="message-role">研究助手</span><span class="result-status" :class="m.result.status">{{ statuses[m.result.status] }}</span></div>
               <p v-if="m.result.mode === 'mock'" class="mock-banner">模拟演示 · 预设工具脚本，不代表模型自主理解</p>
-              <p class="answer-conclusion">{{ m.result.report.conclusion }}</p>
+              <ReportAnswer :report="m.result.report" @edit-plan="openCalculator" />
               <div class="answer-context" v-if="m.result.symbol">{{ m.result.symbol }}<span v-if="m.result.primary_timeframe"> · {{ timeframeLabel(m.result.primary_timeframe) }}主图</span><span v-if="m.result.timeframes?.length > 1"> · 多周期研究</span></div>
-              <details v-if="m.result.report.sections?.length" class="answer-evidence"><summary>查看分析依据 <span>{{ m.result.report.sections.length }} 项</span></summary><section v-for="(s, n) in m.result.report.sections" :key="n"><h3>{{ s.title }}</h3><p>{{ s.text }}</p></section></details>
               <p v-if="m.linkWarning" class="notice" role="status">{{ m.linkWarning }}</p>
               <p v-for="w in m.result.status !== 'success' ? m.result.warnings : []" :key="w" class="notice">{{ warningLabel(w) }}</p>
               <details class="technical-details">
@@ -63,7 +63,7 @@
                   <summary>{{ toolLabel(t.name) }} <span>{{ statuses[t.status] || t.status }}</span></summary>
                   <dl><dt>工具</dt><dd>{{ t.name }}</dd><dt>执行编号</dt><dd class="technical-id">{{ t.call_id }}</dd><dt v-if="t.arguments?.symbol">品种</dt><dd v-if="t.arguments?.symbol">{{ t.arguments.symbol }}</dd><dt v-if="t.arguments?.interval">周期</dt><dd v-if="t.arguments?.interval">{{ timeframeLabel(t.arguments.interval) }}</dd><dt v-if="t.result?.error">错误</dt><dd v-if="t.result?.error">{{ t.result.error }}</dd></dl>
                 </details>
-                <details class="evidence-provenance"><summary>证据与数据来源</summary><dl v-for="e in m.result.report.evidence" :key="e.call_id + e.interval"><dt>证据编号</dt><dd class="technical-id">{{ e.call_id }}</dd><dt>品种 / 周期</dt><dd>{{ e.symbol }} · {{ timeframeLabel(e.interval) }}</dd><dt>来源</dt><dd>{{ sourceLabel(e.source) }}</dd><dt>数据时间</dt><dd>{{ displayTime(e.last_updated) }}</dd><dt>数据快照</dt><dd class="technical-id">{{ e.snapshot_id }}</dd></dl></details>
+                <details class="evidence-provenance"><summary>证据与数据来源</summary><dl v-for="e in m.result.report.evidence" :key="e.call_id + (e.interval || '')"><dt>证据编号</dt><dd class="technical-id">{{ e.call_id }}</dd><dt>来源</dt><dd>{{ sourceLabel(e.source) }}</dd><template v-if="e.kind === 'calculation'"><dt>证据类型</dt><dd>假设盈亏测算，不是市场报价</dd><dt>计算快照</dt><dd class="technical-id">{{ e.calculation_id || e.snapshot_id }}</dd></template><template v-else><dt>品种 / 周期</dt><dd>{{ e.symbol }} · {{ timeframeLabel(e.interval) }}</dd><dt>数据时间</dt><dd>{{ displayTime(e.last_updated) }}</dd><dt>数据快照</dt><dd class="technical-id">{{ e.snapshot_id }}</dd></template></dl></details>
                 <details class="session-details"><summary>会话说明</summary><p data-testid="thread-id">会话：{{ m.result.thread_id }}</p><p>刷新页面会开始新会话。后端使用内存上下文，重启后请新建会话。</p></details>
               </details>
             </div>
@@ -87,13 +87,16 @@
 import { ref, computed, onMounted, nextTick } from 'vue';
 import KlineChart from './components/KlineChart.vue';
 import ResearchWorkspace from './components/ResearchWorkspace.vue';
+import ReportAnswer from './components/ReportAnswer.vue';
+import RiskRewardCalculator from './components/RiskRewardCalculator.vue';
 import { chartPlan, evidenceMatches } from './api/linkage';
-import { displayNumber, displayTime, timeframeLabel, sourceLabel, toolLabel, warningLabel } from './api/presentation';
+import { displayNumber, displayVolume, displayTime, timeframeLabel, sourceLabel, toolLabel, warningLabel, calculationOnly } from './api/presentation';
 import { shouldSubmit } from './api/workspace';
 const symbols = ref([{symbol:'QQQ', asset:'stock'}, {symbol:'XAU/USD', asset:'gold'}]);
 const symbol=ref('QQQ'), interval=ref('1day'), legacy=ref(false), charts=ref([]), chartWarnings=ref([]);
 const error=ref(''), loading=ref(false), busy=ref(false), input=ref(''), messages=ref([]), thread=ref(null);
 const assistantOpen=ref(true), messageList=ref(null), inputEl=ref(null), unread=ref(false);
+const calculatorOpen=ref(false), calculatorPlan=ref(null), calculatorEl=ref(null);
 let nearBottom=true;
 const currentChart=computed(()=>charts.value.find(d=>d.interval===interval.value) || charts.value[0]);
 const comparisonCharts=computed(()=>charts.value.filter(d=>d!==currentChart.value));
@@ -106,7 +109,9 @@ let generation=0;
 function chartProps(d) { return {legacy:legacy.value,candles:d.candles,ma20:d.indicators[legacy.value?'ma7':'ma20'],ma50:d.indicators[legacy.value?'ma25':'ma50'],ma200:d.indicators[legacy.value?'ma60':'ma200'],rsi:d.indicators.rsi,pdh:d.indicators.pdh,pdl:d.indicators.pdl,support:d.rules.support,resistance:d.rules.resistance,interval:d.interval}; }
 function onMessageScroll() { const el=messageList.value; nearBottom=el.scrollHeight-el.scrollTop-el.clientHeight<80; if(nearBottom) unread.value=false; }
 async function scrollToLatest(force=false) { await nextTick(); if((force || nearBottom) && messageList.value?.clientHeight) { messageList.value.scrollTop=messageList.value.scrollHeight; unread.value=false; } else unread.value=true; }
-async function newConversation() { if(busy.value) return; thread.value=null; messages.value=[]; unread.value=false; nearBottom=true; await nextTick(); inputEl.value?.focus(); }
+async function newConversation() { if(busy.value) return; thread.value=null; messages.value=[]; unread.value=false; nearBottom=true; calculatorOpen.value=false; calculatorPlan.value=null; await nextTick(); inputEl.value?.focus(); }
+async function openCalculator(plan) { calculatorPlan.value=plan || null; calculatorOpen.value=true; await nextTick(); calculatorEl.value?.scrollIntoView({ block:'start' }); }
+async function toggleCalculator() { calculatorOpen.value=!calculatorOpen.value; if(calculatorOpen.value) { await nextTick(); calculatorEl.value?.scrollIntoView({ block:'start' }); } }
 async function usePrompt(prompt) { input.value=prompt; await nextTick(); inputEl.value?.focus(); }
 function onInputKey(event) { if(shouldSubmit(event)) { event.preventDefault(); send(); } }
 async function request(path, options={}) {
@@ -155,7 +160,7 @@ async function send() {
       if(!symbols.value.some(s=>s.symbol===plan.symbol)) symbols.value.push({symbol:plan.symbol,asset:plan.asset});
       symbol.value=plan.symbol; interval.value=plan.frames[0];
       await load(plan.frames,plan.evidence);
-    } else if(result.status!=='failed') {
+    } else if(result.status!=='failed' && !calculationOnly(result)) {
       messages.value[index].linkWarning=before!==generation ? '分析期间已手动切换行情，保留当前选择。' : '响应缺少可靠的品种、周期或快照信息，保留当前图表。';
     }
   } catch(e) { messages.value[index].error=e.message; }

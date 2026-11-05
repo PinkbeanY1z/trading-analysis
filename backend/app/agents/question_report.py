@@ -51,7 +51,7 @@ def display_value(value, key=''):
         if key.split('.')[-1] == 'volume':
             for unit, scale in [('亿',1e8),('百万',1e6),('万',1e4)]:
                 if abs(value)>=scale: return f'{value/scale:,.2f}'+unit
-        return f'{value:,.2f}'
+        return f'{value:,.2f}' + ('%' if key.endswith('_percent') or key.startswith('priceDistancePct.') else '')
     labels={'bullish':'多头排列','bearish':'空头排列','mixed':'混合排列','unknown':'未确认',
             'above':'上方','below':'下方','at':'附近','broken':'已跌破','crossed':'已越过',
             'potential':'潜在参考，尚未确认','unconfirmed':'未确认','unverified':'未验证',
@@ -64,6 +64,7 @@ def display_value(value, key=''):
 
 def render_text(text, evidence):
     rendered = re.sub(REF, lambda match: display_value(values_for(evidence[int(match[1])])[match[2]],match[2]), text)
+    rendered = re.sub(r'%\s*%', '%', rendered)
     return re.sub(r'(?<![A-Za-z_])(?:flat|bullish|bearish|mixed|unconfirmed|not_supported|increasing|decreasing|stable)(?![A-Za-z_])', lambda m: display_value(m[0]), rendered)
 
 
@@ -152,6 +153,8 @@ def validate_answer(content, evidence, plan, message, finish_reason='unknown'):
                     for _, key in re.findall(REF, clause):
                         if key != 'calculation.breakeven_win_rate_percent' or '盈亏平衡' not in clause:
                             issue('unverified_historical_win_rate',('answer_blocks',index))
+        if re.search(r'突破[^。；]{0,30}回踩[^。；]{0,10}守住[^。；]{0,25}(?:转为|成为|确认)[^。；]{0,10}阻力', block.text):
+            issue('inverted_level_role',('answer_blocks',index))
         for fact in block.facts:
             matches=[d for d in cited if d['call_id']==fact.evidence_id and (fact.interval is None or d.get('interval')==fact.interval)]
             if fact.evidence_id not in block.evidence_ids or len(matches)!=1:

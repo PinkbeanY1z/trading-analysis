@@ -49,11 +49,76 @@ export function toolLabel(value) {
     calculate_technical_indicators: '计算技术指标',
     analyze_market_structure: '分析市场结构',
     compare_timeframes: '比较多个周期',
+    evaluate_trade_plan: '评估交易假设',
+    plan_research: '规划研究任务',
   }, value, '未知工具');
 }
 
 export function sourceLabel(value) {
-  return knownLabel({ mock: '模拟行情', twelve_data: '真实行情 · Twelve Data' }, value, '来源未确认');
+  return knownLabel({ mock: '模拟行情', twelve_data: '真实行情 · Twelve Data', user_assumption: '用户假设测算' }, value, '来源未确认');
+}
+
+export function displayVolume(value) {
+  if (!Number.isFinite(value) || value < 0) return '不可用';
+  if (value >= 1e8) return displayNumber(value / 1e8) + '亿';
+  if (value >= 1e6) return displayNumber(value / 1e6) + '百万';
+  if (value >= 1e4) return displayNumber(value / 1e4) + '万';
+  return displayNumber(value, 0);
+}
+
+export function displayMetric(value, format = 'number', unit = '') {
+  if (!Number.isFinite(value)) return '—';
+  if (format === 'volume') return displayVolume(value);
+  const formatted = displayNumber(value);
+  if (format === 'percent') return formatted + '%';
+  return formatted + (typeof unit === 'string' && unit ? ' ' + unit : '');
+}
+
+// Older report text contains Python dictionaries and unformatted values. Never
+// attempt to infer financial meaning by parsing that prose in the browser.
+export function legacyReportSummary(report) {
+  const conclusions = ['趋势偏多', '趋势偏空', '周期分歧', '需要更多证据'];
+  return conclusions.includes(report?.conclusion)
+    ? report.conclusion
+    : '本次研究未形成可验证的完整回答，请查看状态与技术详情。';
+}
+
+export function reportBlocks(report) {
+  if (report?.protocol_version !== 2 || (!report?.validation?.valid && report?.answer_origin !== 'deterministic_fallback') || !Array.isArray(report.answer_blocks)) return [];
+  // Only server-validated answer blocks are rendered; legacy sections are never
+  // substituted for a missing answer. Keep detailed evidence out of the summary.
+  const kinds = new Set(['direct_answer', 'key_evidence', 'levels', 'risk_reward', 'limitation', 'watch']);
+  return report.answer_blocks.filter(block => block && kinds.has(block.kind)
+    && typeof block.text === 'string' && typeof block.title === 'string');
+}
+
+export function calculationOnly(result) {
+  const evidence = result?.report?.evidence;
+  return result?.report?.protocol_version === 2 && Array.isArray(evidence)
+    && evidence.length > 0 && evidence.every(isCalculationEvidence);
+}
+
+export function isCalculationEvidence(item) {
+  return item?.kind === 'calculation' && item.source === 'user_assumption'
+    && item.symbol == null && item.asset_class == null && item.interval == null
+    && typeof item.calculation_id === 'string' && Boolean(item.calculation_id);
+}
+
+export function riskRewardPayload(fields) {
+  if (!['long', 'short'].includes(fields?.side)) throw Error('请选择做多或做空。');
+  const body = { side: fields.side, origin: 'user_assumption' };
+  for (const name of ['entry', 'stop', 'target', 'commission_per_unit', 'spread_per_unit', 'slippage_per_unit', 'atr']) {
+    const value = fields[name];
+    const empty = value === null || value === undefined || (typeof value === 'string' && !value.trim());
+    if (empty && !['entry', 'stop', 'target'].includes(name)) continue;
+    if (empty || !['number', 'string'].includes(typeof value)
+      || (typeof value === 'string' && !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(value.trim()))
+      || !Number.isFinite(Number(value))) {
+      throw Error('请填写有效的入场价、止损价、目标价及可选成本。');
+    }
+    body[name] = Number(value);
+  }
+  return body;
 }
 
 export function warningLabel(value) {

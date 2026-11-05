@@ -1,5 +1,7 @@
+import { isCalculationEvidence } from './presentation.js';
+
 export function chartPlan(result) {
-  const evidence = result?.report?.evidence || [];
+  const evidence = (result?.report?.evidence || []).filter(item => !isCalculationEvidence(item));
   if (!['success', 'partial', 'insufficient_data'].includes(result?.status) || !evidence.length) return null;
   if (!result.symbol || !['stock', 'gold'].includes(result.asset_class)) return null;
   const frames = [...new Set(result.timeframes || [])];

@@ -534,3 +534,16 @@ def test_report_presentation_translates_category_and_preserves_integer_counts():
     from app.agents.question_report import render_text, display_value
     assert render_text('趋势flat，均线mixed。',[]) == '趋势走平，均线混合排列。'
     assert display_value(20,'analysis.rolling_levels.lookback') == '20'
+
+
+def test_breakout_retest_cannot_be_mislabelled_resistance_confirmation():
+    response, _, _ = execute([planning(),tool('structure'),final(draft([block('上沿放量突破后回踩守住，才可能转为真实阻力参照。')]))])
+    assert response.status == 'partial'
+    assert 'inverted_level_role' in response.status_reasons
+
+
+def test_percent_tokens_have_units_without_duplicated_percent_signs():
+    from app.agents.question_report import render_text
+    evidence = [{'kind':'calculation','calculation':{'breakeven_win_rate_percent':25}}]
+    assert render_text('{{0.calculation.breakeven_win_rate_percent}}',evidence) == '25.00%'
+    assert render_text('{{0.calculation.breakeven_win_rate_percent}}%',evidence) == '25.00%'

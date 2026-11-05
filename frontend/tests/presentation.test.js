@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { displayNumber, displayTime, timeframeLabel, toolLabel, sourceLabel, warningLabel } from '../src/api/presentation.js';
+import { displayNumber, displayVolume, displayMetric, displayTime, timeframeLabel, toolLabel, sourceLabel, warningLabel, legacyReportSummary, reportBlocks, calculationOnly, riskRewardPayload } from '../src/api/presentation.js';
 
 test('prices use grouped tabular-friendly decimals without floating point tails', () => {
   assert.equal(displayNumber(4071.4126945), '4,071.41');
@@ -78,4 +78,66 @@ test('warning codes explain the actual failure while prose and numeric evidence 
   assert.equal(warningLabel('Mock LLM：预设工具调用脚本，不代表模型自主理解已验证。'), 'Mock LLM：预设工具调用脚本，不代表模型自主理解已验证。');
   assert.equal(warningLabel({ error: 'model_error', price: 123.45 }), '执行失败，请查看技术详情。');
   assert.equal(warningLabel(null), '执行失败，请查看技术详情。');
+});
+
+test('financial metrics render concise ratios, percentages and readable unavailable volumes', () => {
+  assert.equal(displayNumber(728.18749989999999), '728.19');
+  assert.equal(displayMetric(34.88359951875802, 'number'), '34.88');
+  assert.equal(displayMetric(3, 'ratio'), '3.00');
+  assert.equal(displayMetric(25, 'percent'), '25.00%');
+  assert.equal(displayMetric(null, 'percent'), '—');
+  assert.equal(displayMetric(10, 'price', 'USD'), '10.00 USD');
+  assert.equal(displayVolume(85108900), '85.11百万');
+  assert.equal(displayVolume(13590), '1.36万');
+  assert.equal(displayVolume(100000000), '1.00亿');
+  assert.equal(displayVolume(3000), '3,000');
+  for (const missing of [null, undefined, -1, NaN, Infinity]) assert.equal(displayVolume(missing), '不可用');
+});
+
+test('legacy prose never becomes a default dictionary or floating point dump', () => {
+  const legacy = { conclusion: '周期分歧', sections: [{ title: '全部指标', text: "{'ma20': 728.18749989999999}" }] };
+  assert.equal(legacyReportSummary(legacy), '周期分歧');
+  assert.deepEqual(reportBlocks(legacy), []);
+  assert.equal(legacyReportSummary({ conclusion: "{'price': 123.456789}" }), '本次研究未形成可验证的完整回答，请查看状态与技术详情。');
+});
+
+test('only validated question-first answers or explicit server fallback are displayable', () => {
+  const direct = { kind: 'direct_answer', title: '能否入场', text: '当前缺少确认。', detail: false };
+  const report = { protocol_version: 2, validation: { valid: true }, answer_blocks: [direct] };
+  assert.deepEqual(reportBlocks(report), [direct]);
+  assert.deepEqual(reportBlocks({ ...report, validation: { valid: false } }), []);
+  assert.deepEqual(reportBlocks({ ...report, validation: { valid: false }, answer_origin: 'deterministic_fallback' }), [direct]);
+  assert.deepEqual(reportBlocks({ ...report, answer_blocks: [{ kind: 'untrusted', title: 'raw', text: '{}' }, { ...direct, text: {} }] }), []);
+});
+
+test('pure hypothetical calculation is distinguished from market identity', () => {
+  const calculation = { kind: 'calculation', source: 'user_assumption', calculation_id: 'computed-snapshot', symbol: null, asset_class: null, interval: null };
+  const report = { protocol_version: 2, evidence: [calculation] };
+  assert.equal(calculationOnly({ report }), true);
+  assert.equal(calculationOnly({ report: { ...report, evidence: [] } }), false);
+  assert.equal(calculationOnly({ report: { ...report, evidence: [{ ...calculation, source: 'mock' }] } }), false);
+  assert.equal(calculationOnly({ report: { ...report, evidence: [{ ...calculation, symbol: 'QQQ', interval: '1day' }] } }), false);
+});
+
+test('calculator sends user prices unrounded and omits unconfirmed costs instead of zeroing them', () => {
+  const payload = riskRewardPayload({ side: 'long', entry: '690.123456789', stop: '680', target: '720', commission_per_unit: '', spread_per_unit: '0', slippage_per_unit: null, atr: undefined });
+  assert.deepEqual(payload, { side: 'long', origin: 'user_assumption', entry: 690.123456789, stop: 680, target: 720, spread_per_unit: 0 });
+  assert.equal(Object.hasOwn(payload, 'commission_per_unit'), false);
+  assert.equal(Object.hasOwn(payload, 'slippage_per_unit'), false);
+  assert.equal(Object.hasOwn(payload, 'net_reward_to_risk'), false);
+});
+
+test('calculator does not manufacture prices from empty fields or malformed values', () => {
+  const base = { side: 'short', entry: '690', stop: '700', target: '660' };
+  assert.deepEqual(riskRewardPayload(base), { side: 'short', origin: 'user_assumption', entry: 690, stop: 700, target: 660 });
+  for (const value of ['', ' ', false, {}, [], '0x10', 'Infinity', Infinity]) {
+    assert.throws(() => riskRewardPayload({ ...base, entry: value }));
+  }
+  assert.throws(() => riskRewardPayload({ ...base, side: 'other' }));
+});
+
+test('planning and trade evaluation tools have specific labels', () => {
+  assert.equal(toolLabel('plan_research'), '规划研究任务');
+  assert.equal(toolLabel('evaluate_trade_plan'), '评估交易假设');
+  assert.equal(sourceLabel('user_assumption'), '用户假设测算');
 });

@@ -4,8 +4,8 @@ Vue 3 + Vite + Lightweight Charts 行情终端，Python + FastAPI 数据服务�
 
 ## 当前验收状态
 
-- Python148项测试、前端19项测试及Vite构建通过。
-- 第九阶段按9A/9B/9C独立推进：9A已建立[原创设计规范](DESIGN.md)，完成独立滚动分栏、拖动/收起AI、固定输入、移动行情/分析Tab及按需比较图；见[9A实测与前后截图](docs/acceptance-phase9a.md)。问题优先报告、盈亏比测算及完整图表交互仍待9B/9C，不把布局改进当作回答质量验收。
+- Python303项测试、前端27项测试及Vite构建通过。
+- 第九阶段按9A/9B/9C独立推进：9A已建立[原创设计规范](DESIGN.md)，完成独立滚动分栏、拖动/收起AI、固定输入、移动行情/分析Tab及按需比较图；见[9A实测与前后截图](docs/acceptance-phase9a.md)。9B问题优先回答、专项工具与盈亏比测算已完成，真实A–E结果与调试失败如实记录在[9B验收](docs/agent-quality-phase9b.md)；9C尚未开始。
 - 浏览器已验证QQQ/黄金三个周期、均线/RSI/成交量/价格线、多周期联动、会话复用、错误处理、延迟请求切换和375/390/430px布局。
 - 复杂浏览器场景使用明确的确定性测试桩；生产Mock模型仍固定演示QQQ日线，不代表自然语言理解。
 - 真实Twelve Data＋真实DeepSeek已在浏览器完成QQQ日线→4h追问、黄金日线和QQQ日线+1h，四个任务均success，快照/价格/指标与图表一致。黄金明确缺少成交量；数据仍标记最新K线可能未完成。当前证据见 [第八阶段真实验收](docs/acceptance-phase8.md)，[第七阶段Mock行情报告验收](docs/agent-report-phase7.md)保留为历史记录。
@@ -94,16 +94,18 @@ flowchart TD
   数据 --> 计算[确定性指标与结构规则]
   API --> 图[LangGraph StateGraph与内存Checkpointer]
   图 --> 模型[DeepSeek原生Tool Calling或脚本Mock]
-  模型 --> 工具[ToolNode执行四个研究工具]
+  模型 --> 工具[ToolNode执行计划与专项研究工具]
   工具 --> 数据
   工具 --> 模型
   图 --> 报告[Pydantic报告与工具证据]
   报告 --> 页面
 ```
 
-四个工具为行情查询、技术指标、市场结构和多周期比较，复用统一数据服务。数值来自Python工具；报告与图表使用同一数据快照Hash，数据更新或修订会提示重新分析。当前可能未完成的K线保留并警告，结构信号为暂定。
+原生plan_research明确本轮子问题；五类专项工具为行情快照、选择性指标、市场结构、多周期比较和交易方案评估，复用统一数据与派生缓存。数值来自Python工具；报告与图表使用同一数据快照Hash，数据更新或修订会提示重新分析。当前可能未完成的K线保留并警告，结构信号为暂定。
 
-Agent响应新增`primary_timeframe`、`status_reasons`、`report.validation`；主周期必须有本轮已引用证据。默认一次受限报告修复仍失败时保留失败状态。数字和嵌套斜率/偏离率/价格引用只从工具返回的字段映射解析，不执行任意属性访问。
+新版report包含intent、answer_blocks、entry_stance、trade_plan，固定sections为空。默认直接回答本轮子问题，补充依据与工具轨迹折叠；可编辑测算区调用POST /api/analysis/risk-reward，不由前端或模型计算。
+
+Agent响应包含`primary_timeframe`、`status_reasons`、`report.validation`；主周期必须有本轮已引用证据。默认一次受限报告修复仍失败时保留失败状态。数字和嵌套斜率/偏离率/价格引用只从工具返回的字段映射解析，不执行任意属性访问。
 
 ## 边界与旧后端
 

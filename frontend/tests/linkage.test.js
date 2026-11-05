@@ -21,3 +21,14 @@ test('explicit primary timeframe selects the chart and must have evidence',()=>{
   assert.equal(chartPlan({...response,primary_timeframe:'4h'}),null);
   assert.equal(chartPlan({...response,primary_timeframe:null}),null);
 });
+
+test('typed calculation evidence does not displace valid market linkage or pretend to be a quote',()=>{
+  const calc={kind:'calculation',source:'user_assumption',symbol:null,asset_class:null,interval:null,calculation_id:'calc-a'};
+  const mixed={...response,report:{evidence:[...response.report.evidence,calc]}};
+  assert.deepEqual(chartPlan(mixed).evidence,response.report.evidence);
+  assert.equal(chartPlan({...response,report:{evidence:[calc]}}),null);
+  assert.equal(chartPlan({...mixed,report:{evidence:[...response.report.evidence,{...calc,source:'mock'}]}}),null);
+  assert.equal(chartPlan({...mixed,report:{evidence:[...response.report.evidence,{...calc,symbol:'XAU/USD',interval:'1day'}]}}),null);
+  const data={symbol:'QQQ',assetClass:'stock',interval:'1day',source:'mock',last_updated:'date',snapshot_id:'revised'};
+  assert.equal(evidenceMatches(data,chartPlan(mixed).evidence[0]),false);
+});
